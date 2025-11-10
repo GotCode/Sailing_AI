@@ -44,3 +44,6 @@ yarn-error.*
 # Temporary files
 *.tmp
 *.temp
+
+# Build artifacts
+*.zip
