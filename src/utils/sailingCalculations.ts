@@ -1,22 +1,8 @@
 // Sailing calculations and recommendations for Lagoon 440
 
 import { SailConfiguration, SailRecommendation, SailingMode, GPSCoordinates } from '../types/sailing';
-
-/**
- * Lagoon 440 Polar Diagram Data
- * Speed in knots based on wind speed and angle
- * This is simplified data - real polar diagrams would have more data points
- */
-const LAGOON_440_POLARS: { [windSpeed: number]: { [angle: number]: number } } = {
-  6: { 40: 4.2, 52: 5.1, 60: 5.4, 75: 5.6, 90: 5.5, 110: 5.2, 120: 4.9, 135: 4.5, 150: 4.0 },
-  8: { 40: 5.1, 52: 6.0, 60: 6.4, 75: 6.7, 90: 6.6, 110: 6.3, 120: 6.0, 135: 5.5, 150: 5.0 },
-  10: { 40: 5.8, 52: 6.7, 60: 7.2, 75: 7.6, 90: 7.5, 110: 7.2, 120: 6.9, 135: 6.4, 150: 5.8 },
-  12: { 40: 6.3, 52: 7.3, 60: 7.9, 75: 8.4, 90: 8.3, 110: 8.0, 120: 7.6, 135: 7.1, 150: 6.5 },
-  14: { 40: 6.7, 52: 7.8, 60: 8.5, 75: 9.0, 90: 8.9, 110: 8.6, 120: 8.2, 135: 7.7, 150: 7.0 },
-  16: { 40: 7.0, 52: 8.2, 60: 8.9, 75: 9.5, 90: 9.4, 110: 9.1, 120: 8.7, 135: 8.1, 150: 7.4 },
-  20: { 40: 7.4, 52: 8.7, 60: 9.5, 75: 10.2, 90: 10.1, 110: 9.8, 120: 9.3, 135: 8.7, 150: 8.0 },
-  25: { 40: 7.7, 52: 9.1, 60: 10.0, 75: 10.7, 90: 10.6, 110: 10.3, 120: 9.8, 135: 9.2, 150: 8.4 },
-};
+import { PolarDiagram } from '../types/polar';
+import { LAGOON_440_POLAR, getSpeedFromPolar, findOptimalVMG } from '../data/lagoon440Polar';
 
 /**
  * Calculate apparent wind angle from true wind
@@ -33,47 +19,34 @@ export function calculateApparentWindAngle(
 }
 
 /**
- * Get boat speed from polar diagram
+ * Get the appropriate sail configuration name based on conditions
  */
-function getSpeedFromPolar(windSpeed: number, windAngle: number): number {
-  // Find closest wind speed in polar data
-  const windSpeeds = Object.keys(LAGOON_440_POLARS).map(Number);
-  let closestWindSpeed = windSpeeds[0];
-  let minDiff = Math.abs(windSpeed - closestWindSpeed);
+function getSailConfigName(
+  windSpeed: number,
+  trueWindAngle: number,
+  sailingMode: SailingMode,
+  config: SailConfiguration
+): string {
+  if (config.stormJib) return 'Storm Jib + Reefed Main';
+  if (config.codeZero) return 'Code Zero';
+  if (config.spinnaker) return 'Main + Spinnaker';
+  if (config.asymmetrical) return 'Main + Asymmetrical';
 
-  for (const ws of windSpeeds) {
-    const diff = Math.abs(windSpeed - ws);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closestWindSpeed = ws;
-    }
-  }
-
-  // Find closest angle
-  const polar = LAGOON_440_POLARS[closestWindSpeed];
-  const angles = Object.keys(polar).map(Number);
-  let closestAngle = angles[0];
-  minDiff = Math.abs(windAngle - closestAngle);
-
-  for (const angle of angles) {
-    const diff = Math.abs(windAngle - angle);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closestAngle = angle;
-    }
-  }
-
-  return polar[closestAngle];
+  // Default to Main + Jib
+  return 'Main + Jib';
 }
 
 /**
  * Recommend sail configuration based on wind conditions
+ * Uses comprehensive Lagoon 440 polar diagram
  */
 export function recommendSailConfiguration(
   windSpeed: number,
   trueWindAngle: number,
-  sailingMode: SailingMode
+  sailingMode: SailingMode,
+  customPolar?: PolarDiagram
 ): SailRecommendation {
+  const polar = customPolar || LAGOON_440_POLAR;
   const config: SailConfiguration = {
     mainSail: false,
     jib: false,
@@ -200,8 +173,9 @@ export function recommendSailConfiguration(
     speedMultiplier = 1.2;
   }
 
-  // Calculate expected speed
-  const baseSpeed = getSpeedFromPolar(windSpeed, trueWindAngle);
+  // Calculate expected speed using polar diagram
+  const sailConfigName = getSailConfigName(windSpeed, trueWindAngle, sailingMode, config);
+  const baseSpeed = getSpeedFromPolar(polar, windSpeed, trueWindAngle, sailConfigName);
   const expectedSpeed = baseSpeed * speedMultiplier;
 
   return {
@@ -210,6 +184,21 @@ export function recommendSailConfiguration(
     description,
     confidence: windSpeed > 4 ? 85 : 65,
   };
+}
+
+/**
+ * Get optimal sailing angles for current conditions
+ */
+export function getOptimalAngles(
+  windSpeed: number,
+  sailConfig?: string,
+  customPolar?: PolarDiagram
+): {
+  upwind: { twa: number; speed: number; vmg: number };
+  downwind: { twa: number; speed: number; vmg: number };
+} {
+  const polar = customPolar || LAGOON_440_POLAR;
+  return findOptimalVMG(polar, windSpeed, sailConfig);
 }
 
 /**

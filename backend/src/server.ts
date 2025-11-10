@@ -6,6 +6,7 @@ import authRoutes from './routes/auth';
 import routeRoutes from './routes/routes';
 import weatherRoutes from './routes/weather';
 import notificationRoutes from './routes/notifications';
+import polarRoutes from './routes/polars';
 
 dotenv.config();
 
@@ -29,6 +30,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/weather', weatherRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/polars', polarRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

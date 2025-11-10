@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'react-native';
 import SailingScreen from './src/screens/SailingScreen';
 import RouteScreen from './src/screens/RouteScreen';
+import PolarScreen from './src/screens/PolarScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -40,6 +41,14 @@ export default function App() {
             options={{
               title: 'Route Management',
               tabBarLabel: 'Route',
+            }}
+          />
+          <Tab.Screen
+            name="Polar"
+            component={PolarScreen}
+            options={{
+              title: 'Polar Diagram',
+              tabBarLabel: 'Polar',
             }}
           />
         </Tab.Navigator>

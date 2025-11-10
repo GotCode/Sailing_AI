@@ -64,6 +64,29 @@ A comprehensive cloud-based mobile application designed for Lagoon 440 catamaran
 - **Route Activation**: Activate routes for navigation tracking
 - **Waypoint Tracking**: Automatic detection of waypoint arrival
 
+### Polar Diagram Tab
+- **Comprehensive Lagoon 440 Polar Data**:
+  - 6 sail configurations (Main+Jib, Main+Genoa, Main+Spinnaker, Asymmetrical, Code Zero, Storm)
+  - 8+ wind speed curves per configuration
+  - Full TWA range (40-180 degrees)
+  - VMG (Velocity Made Good) calculations
+- **Performance Tracking**:
+  - Real-time target speed vs actual speed
+  - Performance percentage display
+  - Optimal angle recommendations
+- **Boat Specifications**:
+  - Complete technical details
+  - Sail area information
+  - Displacement and dimensions
+- **Multiple Formats**:
+  - Tabular view of polar data
+  - JSON and CSV export
+  - Import custom polar diagrams
+- **Cloud Storage**:
+  - Save custom polars to user account
+  - Browse public polar diagrams
+  - Clone and customize existing polars
+
 ## Installation
 
 ### Prerequisites
@@ -186,24 +209,50 @@ The app tracks:
 
 ```
 lagoon440-sailing-app/
-├── App.tsx                      # Main app entry point
+├── App.tsx                          # Main app entry point with 3 tabs
 ├── src/
 │   ├── screens/
-│   │   ├── SailingScreen.tsx   # Main sailing screen
-│   │   └── RouteScreen.tsx     # Route management screen
+│   │   ├── SailingScreen.tsx       # Main sailing screen
+│   │   ├── RouteScreen.tsx         # Route management screen
+│   │   └── PolarScreen.tsx         # Polar diagram viewer/editor
 │   ├── components/
-│   │   ├── ErrorPanel.tsx      # Error message display
-│   │   └── SailConfigDisplay.tsx # Sail configuration display
+│   │   ├── ErrorPanel.tsx          # Error message display
+│   │   ├── SailConfigDisplay.tsx   # Sail configuration display
+│   │   └── PolarChart.tsx          # Polar diagram visualization
 │   ├── services/
-│   │   ├── windyService.ts     # Windy.com API integration
-│   │   └── navigationService.ts # Navigation tracking logic
+│   │   ├── windyService.ts         # Windy.com API integration
+│   │   ├── navigationService.ts    # Navigation tracking logic
+│   │   └── weatherMonitoringService.ts # Weather monitoring
 │   ├── utils/
-│   │   ├── sailingCalculations.ts # Sailing math and recommendations
-│   │   └── gpxHandler.ts       # GPX file parsing and generation
-│   └── types/
-│       └── sailing.ts          # TypeScript type definitions
-├── package.json
-├── app.json
+│   │   ├── sailingCalculations.ts  # Sailing math and recommendations
+│   │   ├── gpxHandler.ts           # GPX file parsing and generation
+│   │   └── polarImportExport.ts    # Polar diagram import/export
+│   ├── types/
+│   │   ├── sailing.ts              # TypeScript type definitions
+│   │   └── polar.ts                # Polar diagram types
+│   ├── data/
+│   │   └── lagoon440Polar.ts       # Complete Lagoon 440 polar data
+│   └── config/
+│       └── api.ts                  # Backend API configuration
+├── backend/
+│   ├── src/
+│   │   ├── server.ts               # Express server
+│   │   ├── models/
+│   │   │   ├── User.ts
+│   │   │   ├── Route.ts
+│   │   │   ├── WeatherHistory.ts
+│   │   │   └── PolarDiagram.ts     # Polar storage model
+│   │   ├── routes/
+│   │   │   ├── auth.ts
+│   │   │   ├── routes.ts
+│   │   │   ├── weather.ts
+│   │   │   ├── notifications.ts
+│   │   │   └── polars.ts           # Polar API endpoints
+│   │   └── middleware/
+│   │       └── auth.ts
+│   └── package.json
+├── DEPLOYMENT.md                    # Complete deployment guide
+├── POLAR_GUIDE.md                   # Polar diagram documentation
 └── README.md
 ```
 
