@@ -46,7 +46,8 @@ export interface SailRecommendation {
 
 export enum SailingMode {
   SPEED = 'speed',
-  COMFORT = 'comfort'
+  COMFORT = 'comfort',
+  MIXED = 'mixed'
 }
 
 export interface Waypoint {
@@ -57,6 +58,10 @@ export interface Waypoint {
   order: number;
   arrived?: boolean;
   arrivalTime?: Date;
+  sailConfiguration?: SailConfiguration;
+  useEngine?: boolean;
+  estimatedArrival?: Date;
+  weatherForecast?: WindForecast;
 }
 
 export interface Route {
@@ -76,4 +81,29 @@ export interface NavigationRecommendation {
   recommendedHeading: number; // degrees
   estimatedTimeToArrival: number; // minutes
   windForecast: WindForecast;
+}
+
+export interface RouteCorridorWeather {
+  startPoint: GPSCoordinates;
+  endPoint: GPSCoordinates;
+  weatherPoints: Array<{
+    coordinates: GPSCoordinates;
+    forecast: WindForecast;
+    distance: number; // nm from start
+  }>;
+  averageWindSpeed: number;
+  maxWindSpeed: number;
+  averageWaveHeight: number;
+  maxWaveHeight: number;
+}
+
+export interface RoutePlanningConfig {
+  startPoint: GPSCoordinates;
+  destination: GPSCoordinates;
+  sailingMode: SailingMode;
+  windThreshold: number; // knots - use engine below this
+  avoidStorms: boolean;
+  ensureDaytimeArrival: boolean;
+  maxDailyDistance: number; // nautical miles
+  preferredWaypointInterval: number; // nautical miles
 }

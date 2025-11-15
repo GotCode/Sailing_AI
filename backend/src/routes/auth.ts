@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { body, validationResult } from 'express-validator';
 import rateLimit from 'express-rate-limit';
@@ -37,7 +37,7 @@ router.post(
     body('password').isLength({ min: 6 }),
     body('name').trim().isLength({ min: 1 }),
   ],
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
@@ -62,7 +62,7 @@ router.post(
 
       await user.save();
 
-      const token = generateToken(user._id.toString());
+      const token = generateToken((user._id as any).toString());
 
       res.status(201).json({
         token,
@@ -84,7 +84,7 @@ router.post(
   '/login',
   authLimiter,
   [body('email').isEmail().normalizeEmail(), body('password').exists()],
-  async (req, res) => {
+  async (req: Request, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
@@ -103,7 +103,7 @@ router.post(
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
-      const token = generateToken(user._id.toString());
+      const token = generateToken((user._id as any).toString());
 
       res.json({
         token,

@@ -160,6 +160,10 @@ export function recommendSailConfiguration(
         config.asymmetrical = true;
         description = 'Broad reach: Asymmetrical spinnaker';
         speedMultiplier = 1.15;
+      } else if (sailingMode === SailingMode.MIXED) {
+        config.asymmetrical = true;
+        description = 'Broad reach: Asymmetrical (balanced)';
+        speedMultiplier = 1.05;
       } else {
         config.mainSail = true;
         config.jib = true;
@@ -172,6 +176,10 @@ export function recommendSailConfiguration(
         config.spinnaker = true;
         description = 'Running: Spinnaker';
         speedMultiplier = 1.1;
+      } else if (sailingMode === SailingMode.MIXED) {
+        config.asymmetrical = true;
+        description = 'Running: Asymmetrical (balanced)';
+        speedMultiplier = 1.0;
       } else {
         config.mainSail = true;
         config.jib = true;
@@ -196,6 +204,10 @@ export function recommendSailConfiguration(
         config.asymmetrical = true;
         description = 'Moderate downwind: Asymmetrical spinnaker';
         speedMultiplier = 1.2;
+      } else if (sailingMode === SailingMode.MIXED) {
+        config.asymmetrical = true;
+        description = 'Moderate downwind: Asymmetrical (balanced)';
+        speedMultiplier = 1.1;
       } else {
         config.jib = true;
         description = 'Moderate downwind: Main + jib';
@@ -215,6 +227,10 @@ export function recommendSailConfiguration(
         config.codeZero = true;
         description = 'Light wind downwind: Code Zero';
         speedMultiplier = 1.25;
+      } else if (sailingMode === SailingMode.MIXED) {
+        config.codeZero = true;
+        description = 'Light wind downwind: Code Zero (balanced)';
+        speedMultiplier = 1.15;
       } else {
         config.mainSail = true;
         config.jib = true;
