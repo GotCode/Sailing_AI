@@ -68,7 +68,7 @@ function MainNavigator() {
         component={WeatherMonitorScreen}
         options={{
           title: 'Weather Monitor',
-          tabBarLabel: 'Weather',
+          tabBarLabel: 'Weather Monitor',
         }}
       />
       <Tab.Screen

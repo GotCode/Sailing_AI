@@ -12,8 +12,10 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
 import { getWeatherMonitoringService } from '../services/weatherMonitoringService';
-import { getNavigationService } from '../services/navigationService';
+import { Route, GPSCoordinates } from '../types/sailing';
 
 interface MonitoringConfig {
   enabled: boolean;
@@ -49,31 +51,75 @@ export default function WeatherMonitorScreen() {
   const [lastCheckTime, setLastCheckTime] = useState<Date | null>(null);
   const [activeAlerts, setActiveAlerts] = useState<any[]>([]);
   const [isMonitoring, setIsMonitoring] = useState(false);
+  const [activeRoute, setActiveRoute] = useState<Route | null>(null);
+  const [currentPosition, setCurrentPosition] = useState<GPSCoordinates | null>(null);
 
   const weatherService = getWeatherMonitoringService();
-  const navigationService = getNavigationService();
 
   useEffect(() => {
-    // Load alerts when screen becomes active
+    // Load active route and current position on mount
+    loadActiveRoute();
+    getCurrentPosition();
+  }, []);
+
+  useEffect(() => {
+    // Load alerts when monitoring is active
     if (isMonitoring) {
       const alerts = weatherService.getAlerts();
       setActiveAlerts(alerts);
     }
   }, [isMonitoring]);
 
+  const loadActiveRoute = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('activeRoute');
+      if (stored) {
+        setActiveRoute(JSON.parse(stored));
+      }
+    } catch (err) {
+      console.error('Failed to load active route:', err);
+    }
+  };
+
+  const getCurrentPosition = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const location = await Location.getCurrentPositionAsync({});
+        setCurrentPosition({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to get current position:', err);
+    }
+  };
+
   const handleToggleMonitoring = async () => {
     if (!config.enabled) {
       // Start monitoring
-      const route = navigationService.getCurrentRoute();
-      if (!route) {
-        Alert.alert('No Active Route', 'Please activate a route before enabling weather monitoring.');
+      // Reload active route in case it was updated
+      await loadActiveRoute();
+
+      if (!activeRoute) {
+        Alert.alert(
+          'No Active Route',
+          'Please export a route from the Sailing tab first.\n\n' +
+          '1. Go to Sailing tab\n' +
+          '2. Plan a route\n' +
+          '3. Click "Export to Route Tab"'
+        );
         return;
       }
 
-      const currentPosition = navigationService.getCurrentPosition();
       if (!currentPosition) {
-        Alert.alert('No GPS Position', 'Unable to determine current position.');
-        return;
+        // Try to get position again
+        await getCurrentPosition();
+        if (!currentPosition) {
+          Alert.alert('No GPS Position', 'Unable to determine current position. Please enable location services.');
+          return;
+        }
       }
 
       // Update weather service config
@@ -88,11 +134,14 @@ export default function WeatherMonitorScreen() {
         notifyViaSMS: config.notifyViaSMS,
       });
 
-      weatherService.startMonitoring(route, currentPosition);
+      weatherService.startMonitoring(activeRoute, currentPosition);
       setConfig({ ...config, enabled: true });
       setIsMonitoring(true);
       setLastCheckTime(new Date());
-      Alert.alert('Monitoring Started', 'Weather monitoring is now active.');
+      Alert.alert(
+        'Monitoring Started',
+        `Weather monitoring is now active for route:\n"${activeRoute.name}"\n\n${activeRoute.waypoints.length} waypoints being monitored.`
+      );
     } else {
       // Stop monitoring
       weatherService.stopMonitoring();
@@ -160,6 +209,18 @@ export default function WeatherMonitorScreen() {
             thumbColor={config.enabled ? '#0044AA' : '#999'}
           />
         </View>
+
+        {activeRoute && (
+          <Text style={styles.routeInfo}>
+            Route: {activeRoute.name} ({activeRoute.waypoints.length} waypoints)
+          </Text>
+        )}
+
+        {!activeRoute && (
+          <Text style={styles.noRouteWarning}>
+            No route loaded. Export a route from the Sailing tab first.
+          </Text>
+        )}
 
         {lastCheckTime && (
           <Text style={styles.lastCheck}>
@@ -426,6 +487,18 @@ const styles = StyleSheet.create({
   lastCheck: {
     fontSize: 12,
     color: '#999',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  routeInfo: {
+    fontSize: 12,
+    color: '#0066CC',
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  noRouteWarning: {
+    fontSize: 12,
+    color: '#F57C00',
     marginTop: 8,
     fontStyle: 'italic',
   },

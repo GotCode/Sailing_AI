@@ -234,6 +234,19 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
       }
     }
 
+    // Determine sail configuration string
+    let sailConfigString = 'Engine';
+    if (!useEngine && sailConfig) {
+      const sails = [];
+      if (sailConfig.mainSail) sails.push('Main');
+      if (sailConfig.jib) sails.push('Jib');
+      if (sailConfig.asymmetrical) sails.push('Asym');
+      if (sailConfig.spinnaker) sails.push('Spin');
+      if (sailConfig.codeZero) sails.push('Code0');
+      if (sailConfig.stormJib) sails.push('Storm');
+      sailConfigString = sails.length > 0 ? sails.join('+') : 'Main+Jib';
+    }
+
     const waypoint: Waypoint = {
       id: `waypoint-${i + 1}`,
       name: i === 0
@@ -243,12 +256,16 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
           : `Waypoint ${i}`,
       latitude: coordinates.latitude,
       longitude: coordinates.longitude,
+      coordinates: coordinates,
       order: i + 1,
       arrived: false,
       estimatedArrival,
-      sailConfiguration: sailConfig,
+      sailConfiguration: sailConfigString,
       useEngine,
-      weatherForecast: nearestWeather,
+      weatherForecast: nearestWeather ? {
+        ...nearestWeather,
+        direction: nearestWeather.windDirection,
+      } : undefined,
     };
 
     waypoints.push(waypoint);

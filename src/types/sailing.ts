@@ -24,6 +24,7 @@ export interface WindForecast {
   timestamp: Date;
   windSpeed: number; // knots
   windDirection: number; // degrees
+  direction: number; // degrees (alias for windDirection for compatibility)
   gustSpeed: number; // knots
   waveHeight: number; // meters
 }
@@ -55,10 +56,11 @@ export interface Waypoint {
   name: string;
   latitude: number;
   longitude: number;
+  coordinates: GPSCoordinates;
   order: number;
   arrived?: boolean;
   arrivalTime?: Date;
-  sailConfiguration?: SailConfiguration;
+  sailConfiguration?: string;
   useEngine?: boolean;
   estimatedArrival?: Date;
   weatherForecast?: WindForecast;

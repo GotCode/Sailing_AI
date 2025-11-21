@@ -9,6 +9,7 @@ import {
   Modal,
   TextInput,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LAGOON_440_POLAR } from '../data/lagoon440Polar';
 import { PolarDiagram } from '../types/polar';
 import PolarChart from '../components/PolarChart';
@@ -22,13 +23,71 @@ const PolarScreen: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
+  // Engine activation threshold (default 3 knots)
+  const [engineThreshold, setEngineThreshold] = useState<string>('3');
+
   const windSpeedNum = parseFloat(windSpeed) || 12;
   const twaNum = parseFloat(currentTWA) || 90;
   const speedNum = parseFloat(currentSpeed) || 0;
 
+  // Load engine threshold on mount
+  useEffect(() => {
+    loadEngineThreshold();
+  }, []);
+
+  const loadEngineThreshold = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('engineWindThreshold');
+      if (stored) {
+        setEngineThreshold(stored);
+      }
+    } catch (err) {
+      console.error('Failed to load engine threshold:', err);
+    }
+  };
+
+  const saveEngineThreshold = async (value: string) => {
+    try {
+      await AsyncStorage.setItem('engineWindThreshold', value);
+      setEngineThreshold(value);
+      Alert.alert('Saved', `Engine activation threshold set to ${value} knots`);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to save engine threshold');
+    }
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        {/* Engine Activation Settings */}
+        <View style={styles.enginePanel}>
+          <Text style={styles.panelTitle}>Engine Activation Settings</Text>
+          <Text style={styles.engineDescription}>
+            When wind speed falls below this threshold, the engine will be automatically activated during route planning.
+          </Text>
+          <View style={styles.engineInputRow}>
+            <Text style={styles.label}>Wind Speed Threshold (knots)</Text>
+            <View style={styles.engineInputContainer}>
+              <TextInput
+                style={styles.engineInput}
+                value={engineThreshold}
+                onChangeText={setEngineThreshold}
+                keyboardType="numeric"
+                placeholder="3"
+              />
+              <TouchableOpacity
+                style={styles.saveThresholdButton}
+                onPress={() => saveEngineThreshold(engineThreshold)}
+              >
+                <Text style={styles.saveButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          <Text style={styles.engineNote}>
+            Current threshold: {engineThreshold} knots (default: 3)
+          </Text>
+        </View>
+
         {/* Control Panel */}
         <View style={styles.controlPanel}>
           <Text style={styles.panelTitle}>Polar Diagram Controls</Text>
@@ -160,6 +219,54 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+  },
+  enginePanel: {
+    backgroundColor: '#FFF3E0',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+  },
+  engineDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  engineInputRow: {
+    marginBottom: 8,
+  },
+  engineInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  engineInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#DDD',
+    borderRadius: 4,
+    padding: 10,
+    fontSize: 14,
+    backgroundColor: '#FFFFFF',
+  },
+  saveThresholdButton: {
+    backgroundColor: '#FF9800',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 4,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  engineNote: {
+    fontSize: 11,
+    color: '#999',
+    fontStyle: 'italic',
   },
   controlPanel: {
     backgroundColor: '#F5F5F5',

@@ -406,6 +406,35 @@ export class WeatherMonitoringService {
       }
     }
   }
+
+  /**
+   * Add a simulated alert (for simulation mode)
+   */
+  addSimulatedAlert(alert: any) {
+    const weatherAlert: WeatherAlert = {
+      id: alert.id,
+      timestamp: alert.timestamp,
+      type: alert.type,
+      severity: alert.severity === 'warning' ? 'high' : alert.severity === 'watch' ? 'medium' : 'low',
+      location: alert.location,
+      distance: 0,
+      message: alert.message,
+      recommendation: alert.type === 'storm' ? 'Route deviation recommended to avoid storm system.' : undefined,
+    };
+    this.alerts.push(weatherAlert);
+
+    // Send notifications
+    if (this.config.notifyViaPush || this.config.notifyViaSMS) {
+      this.sendNotifications([weatherAlert]);
+    }
+  }
+
+  /**
+   * Clear all alerts
+   */
+  clearAlerts() {
+    this.alerts = [];
+  }
 }
 
 // Singleton instance

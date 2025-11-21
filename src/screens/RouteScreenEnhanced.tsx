@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Route,
   Waypoint,
@@ -37,6 +38,30 @@ const RouteScreenEnhanced: React.FC = () => {
   const [waypointLon, setWaypointLon] = useState('');
   const [useEngine, setUseEngine] = useState(false);
   const [selectedSailConfig, setSelectedSailConfig] = useState<string>('main+jib');
+
+  // Load exported route from AsyncStorage on mount
+  useEffect(() => {
+    const loadExportedRoute = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('activeRoute');
+        if (stored) {
+          const route = JSON.parse(stored);
+          // Ensure dates are properly parsed
+          if (route.createdAt) route.createdAt = new Date(route.createdAt);
+          if (route.updatedAt) route.updatedAt = new Date(route.updatedAt);
+          route.waypoints = route.waypoints.map((wp: any) => ({
+            ...wp,
+            estimatedArrival: wp.estimatedArrival ? new Date(wp.estimatedArrival) : undefined,
+            arrivalTime: wp.arrivalTime ? new Date(wp.arrivalTime) : undefined,
+          }));
+          setCurrentRoute(route);
+        }
+      } catch (err) {
+        console.error('Failed to load exported route:', err);
+      }
+    };
+    loadExportedRoute();
+  }, []);
 
   // Sail configuration options
   const sailConfigurations = [
@@ -244,16 +269,36 @@ const RouteScreenEnhanced: React.FC = () => {
     });
   };
 
-  const getSailConfigLabel = (config?: SailConfiguration): string => {
+  const getSailConfigLabel = (waypoint: Waypoint): string => {
+    if (waypoint.useEngine) return 'Engine';
+
+    const config = waypoint.sailConfiguration;
     if (!config) return 'N/A';
+
+    // If it's a string (from route planning service), use it directly
+    if (typeof config === 'string') {
+      // Calculate trim angle to AWA
+      const trimAngle = waypoint.weatherForecast
+        ? Math.abs(waypoint.weatherForecast.direction - 45)
+        : 0;
+      return `${config} @ ${trimAngle.toFixed(0)}° AWA`;
+    }
+
+    // If it's an object, find matching label
     const match = sailConfigurations.find(sc =>
       JSON.stringify(sc.config) === JSON.stringify(config)
     );
-    return match?.label || 'Custom';
+    const label = match?.label || 'Custom';
+    const trimAngle = waypoint.weatherForecast
+      ? Math.abs(waypoint.weatherForecast.direction - 45)
+      : 0;
+    return `${label} @ ${trimAngle.toFixed(0)}° AWA`;
   };
 
   const renderWaypoint = ({ item, index }: { item: Waypoint; index: number }) => {
-    const daylightCheck = item.estimatedArrival
+    // Only check daylight arrival for the final waypoint
+    const isLastWaypoint = currentRoute && index === currentRoute.waypoints.length - 1;
+    const daylightCheck = (isLastWaypoint && item.estimatedArrival)
       ? validateDaylightArrival(item, { latitude: item.latitude, longitude: item.longitude })
       : { isValid: true };
 
@@ -284,12 +329,10 @@ const RouteScreenEnhanced: React.FC = () => {
             </Text>
           </View>
 
-          {!item.useEngine && item.sailConfiguration && (
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Sails:</Text>
-              <Text style={styles.detailValue}>{getSailConfigLabel(item.sailConfiguration)}</Text>
-            </View>
-          )}
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Sails:</Text>
+            <Text style={styles.detailValue}>{getSailConfigLabel(item)}</Text>
+          </View>
 
           {item.estimatedArrival && (
             <View style={styles.detailRow}>
