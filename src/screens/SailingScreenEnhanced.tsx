@@ -42,36 +42,7 @@ import {
   validateLongitude,
   sanitizeNumericInput,
 } from '../utils/validation';
-
-// Helper to parse location input (comma-separated coords or location name)
-const parseLocationInput = async (input: string): Promise<GPSCoordinates | null> => {
-  const trimmed = input.trim();
-
-  // Try parsing as comma-separated coordinates
-  const coordMatch = trimmed.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
-  if (coordMatch) {
-    const lat = parseFloat(coordMatch[1]);
-    const lon = parseFloat(coordMatch[2]);
-    if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
-      return { latitude: lat, longitude: lon };
-    }
-  }
-
-  // If not coordinates, try geocoding the location name
-  try {
-    const results = await Location.geocodeAsync(trimmed);
-    if (results.length > 0) {
-      return {
-        latitude: results[0].latitude,
-        longitude: results[0].longitude,
-      };
-    }
-  } catch (err) {
-    console.error('Geocoding error:', err);
-  }
-
-  return null;
-};
+import { parseLocationInput, getCoordinateFormatExamples } from '../utils/coordinateParser';
 
 const SailingScreenEnhanced: React.FC = () => {
   const { user } = useAuth();
@@ -381,6 +352,16 @@ const SailingScreenEnhanced: React.FC = () => {
     );
   };
 
+  // ===== Show Coordinate Format Help =====
+  const showCoordinateFormatHelp = () => {
+    const examples = getCoordinateFormatExamples();
+    Alert.alert(
+      'Supported Coordinate Formats',
+      examples.join('\n'),
+      [{ text: 'OK', style: 'default' }]
+    );
+  };
+
   // ===== Open Google Maps =====
   const openGoogleMaps = async (type: 'start' | 'destination') => {
     const input = type === 'start' ? startInput : destInput;
@@ -631,6 +612,9 @@ const SailingScreenEnhanced: React.FC = () => {
           <View style={styles.labelRow}>
             <Text style={styles.label}>Starting Point</Text>
             <View style={styles.labelButtons}>
+              <TouchableOpacity onPress={showCoordinateFormatHelp} style={styles.helpButton}>
+                <Text style={styles.helpButtonText}>?</Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={useCurrentLocationForStart} style={styles.gpsButton}>
                 <Text style={styles.gpsButtonText}>GPS</Text>
               </TouchableOpacity>
@@ -641,7 +625,7 @@ const SailingScreenEnhanced: React.FC = () => {
           </View>
           <TextInput
             style={styles.input}
-            placeholder="lat, lon (e.g., 32.29, -64.78) or location name"
+            placeholder="DD, DDM, DMS, Plus Code, or name (tap ? for help)"
             value={startInput}
             onChangeText={setStartInput}
           />
@@ -662,7 +646,7 @@ const SailingScreenEnhanced: React.FC = () => {
           </View>
           <TextInput
             style={styles.input}
-            placeholder="lat, lon (e.g., 25.03, -77.40) or location name"
+            placeholder="DD, DDM, DMS, Plus Code, or name (tap ? for help)"
             value={destInput}
             onChangeText={setDestInput}
           />
@@ -877,6 +861,7 @@ const SailingScreenEnhanced: React.FC = () => {
         <SailingRose
           trueWindAngle={parseFloat(trueWindAngle) || 90}
           windSpeed={parseFloat(windSpeed) || 10}
+          sailRecommendation={sailRecommendation}
         />
       </View>
 
@@ -1165,11 +1150,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
+  helpButton: {
+    backgroundColor: '#9E9E9E',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginRight: 6,
+  },
+  helpButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
   gpsButton: {
     backgroundColor: '#00ACC1',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 4,
+    marginRight: 6,
   },
   gpsButtonText: {
     color: '#FFFFFF',

@@ -4,17 +4,20 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Circle, Line, Path, Text as SvgText, G } from 'react-native-svg';
+import { SailRecommendation } from '../types/sailing';
 
 interface SailingRoseProps {
   trueWindAngle: number; // TWA in degrees (0-180, mirrored for port/starboard)
   windSpeed: number; // Wind speed in knots
   boatHeading?: number; // Optional boat heading for display
+  sailRecommendation?: SailRecommendation; // Optional sail recommendation to display
 }
 
 const SailingRose: React.FC<SailingRoseProps> = ({
   trueWindAngle,
   windSpeed,
   boatHeading = 0,
+  sailRecommendation,
 }) => {
   const size = 220;
   const center = size / 2;
@@ -49,6 +52,21 @@ const SailingRose: React.FC<SailingRoseProps> = ({
     if (twa < 110) return '#2196F3'; // Beam reach - optimal
     if (twa < 150) return '#4CAF50'; // Broad reach - good
     return '#FF9800'; // Running
+  };
+
+  // Get short sail configuration name
+  const getSailConfigName = (): string => {
+    if (!sailRecommendation) return 'N/A';
+    const config = sailRecommendation.configuration;
+
+    if (config.stormJib) return 'Storm Jib';
+    if (config.spinnaker) return 'Spinnaker';
+    if (config.asymmetrical) return 'Asymmetrical';
+    if (config.codeZero) return 'Code Zero';
+    if (config.mainSail && config.jib) return 'Main + Jib';
+    if (config.mainSail) return 'Main Only';
+    if (config.jib) return 'Jib Only';
+    return 'Motor';
   };
 
   // Cardinal direction marks
@@ -248,6 +266,23 @@ const SailingRose: React.FC<SailingRoseProps> = ({
           <Text style={styles.infoLabel}>TWA:</Text>
           <Text style={styles.infoValue}>{trueWindAngle}°</Text>
         </View>
+        {sailRecommendation && (
+          <>
+            <View style={styles.divider} />
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Recommended Sail:</Text>
+              <Text style={[styles.infoValue, styles.sailConfigText]}>
+                {getSailConfigName()}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Expected Speed:</Text>
+              <Text style={styles.infoValue}>
+                {sailRecommendation.expectedSpeed.toFixed(1)} kts
+              </Text>
+            </View>
+          </>
+        )}
       </View>
 
       {/* Legend */}
@@ -309,6 +344,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     color: '#333',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#E0E0E0',
+    marginVertical: 8,
+  },
+  sailConfigText: {
+    color: '#0066CC',
+    fontSize: 13,
   },
   legend: {
     flexDirection: 'row',
