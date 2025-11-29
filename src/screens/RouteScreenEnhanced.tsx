@@ -23,9 +23,53 @@ import {
   Route,
   Waypoint,
 } from '../types/sailing';
-import { parseGPX, generateGPX } from '../utils/gpxHandler';
+import { parseGPX, generateRoute, getRouteFileExtension, getRouteMimeType } from '../utils/gpxHandler';
 import { validateDaylightArrival } from '../services/routePlanningService';
 import { formatToDDM } from '../utils/coordinateParser';
+import { calculateDistance, calculateBearing } from '../utils/sailingCalculations';
+import { ROUTE_FORMAT_STORAGE, RouteFormat } from './SettingsScreen';
+
+// Calculate route statistics from waypoints
+const calculateRouteStatistics = (route: Route | null) => {
+  if (!route || route.waypoints.length === 0) {
+    return { avgWaves: 0, maxWaves: 0, avgWind: 0, maxWind: 0, totalDistance: 0 };
+  }
+
+  let totalWaves = 0;
+  let maxWaves = 0;
+  let totalWind = 0;
+  let maxWind = 0;
+  let weatherCount = 0;
+  let totalDistance = 0;
+
+  for (const wp of route.waypoints) {
+    // Sum up distances
+    if (wp.legDistance) {
+      totalDistance += wp.legDistance;
+    }
+
+    // Process weather data
+    if (wp.weatherForecast) {
+      const waveHeight = wp.weatherForecast.waveHeight || 0;
+      const windSpeed = wp.weatherForecast.windSpeed || 0;
+
+      totalWaves += waveHeight;
+      totalWind += windSpeed;
+      weatherCount++;
+
+      if (waveHeight > maxWaves) maxWaves = waveHeight;
+      if (windSpeed > maxWind) maxWind = windSpeed;
+    }
+  }
+
+  return {
+    avgWaves: weatherCount > 0 ? totalWaves / weatherCount : 0,
+    maxWaves,
+    avgWind: weatherCount > 0 ? totalWind / weatherCount : 0,
+    maxWind,
+    totalDistance,
+  };
+};
 
 const RouteScreenEnhanced: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState<Route | null>(null);
@@ -115,23 +159,30 @@ const RouteScreenEnhanced: React.FC = () => {
     }
   };
 
-  const handleExportGPX = async () => {
-    console.log('Export GPX clicked, currentRoute:', currentRoute);
+  const handleExportRoute = async () => {
+    console.log('Export Route clicked, currentRoute:', currentRoute);
     if (!currentRoute || currentRoute.waypoints.length === 0) {
       Alert.alert('No Route', 'Please create a route with waypoints first, or use "Plan Route Automatically" on the Sailing tab.');
       return;
     }
-    console.log('Exporting route with', currentRoute.waypoints.length, 'waypoints');
 
     try {
-      // Ensure route has proper date objects before generating GPX
+      // Load preferred route format from settings
+      const savedFormat = await AsyncStorage.getItem(ROUTE_FORMAT_STORAGE);
+      const format: RouteFormat = (savedFormat as RouteFormat) || 'GPX';
+
+      console.log('Exporting route with', currentRoute.waypoints.length, 'waypoints in', format, 'format');
+
+      // Ensure route has proper date objects before generating
       const routeForExport = {
         ...currentRoute,
         createdAt: currentRoute.createdAt instanceof Date ? currentRoute.createdAt : new Date(currentRoute.createdAt || Date.now()),
         updatedAt: currentRoute.updatedAt instanceof Date ? currentRoute.updatedAt : new Date(currentRoute.updatedAt || Date.now()),
       };
 
-      const gpxContent = generateGPX(routeForExport);
+      const routeContent = generateRoute(routeForExport, format);
+      const fileExtension = getRouteFileExtension(format);
+      const mimeType = getRouteMimeType(format);
 
       // Generate filename from Start-End coordinates and start date
       const startWp = currentRoute.waypoints[0];
@@ -141,15 +192,15 @@ const RouteScreenEnhanced: React.FC = () => {
 
       const startCoords = `${startWp.latitude.toFixed(2)}_${startWp.longitude.toFixed(2)}`;
       const endCoords = `${endWp.latitude.toFixed(2)}_${endWp.longitude.toFixed(2)}`;
-      const fileName = `Route_${startCoords}_to_${endCoords}_${dateStr}.gpx`.replace(/[^\w\d.-]/g, '_');
+      const fileName = `Route_${startCoords}_to_${endCoords}_${dateStr}${fileExtension}`.replace(/[^\w\d.-]/g, '_');
 
       // Web platform - direct download using data URI (more reliable)
       if (Platform.OS === 'web') {
         console.log('Web export: creating download for', fileName);
-        console.log('GPX content length:', gpxContent.length);
+        console.log('Route content length:', routeContent.length);
         try {
           // Use data URI approach which is more reliable across browsers
-          const dataUri = 'data:application/gpx+xml;charset=utf-8,' + encodeURIComponent(gpxContent);
+          const dataUri = `data:${mimeType};charset=utf-8,` + encodeURIComponent(routeContent);
           // Access DOM via global for React Native Web compatibility
           const doc = (global as any).document;
           const win = (global as any).window;
@@ -165,7 +216,7 @@ const RouteScreenEnhanced: React.FC = () => {
             Alert.alert('Export Successful', `Route downloaded as ${fileName}`);
           } else {
             // Fallback for environments without DOM
-            Alert.alert('Export', `GPX generated but download not supported in this environment.\nContent length: ${gpxContent.length} bytes`);
+            Alert.alert('Export', `Route generated but download not supported in this environment.\nContent length: ${routeContent.length} bytes`);
           }
         } catch (webError) {
           console.error('Web export error:', webError);
@@ -174,9 +225,9 @@ const RouteScreenEnhanced: React.FC = () => {
             const win = (global as any).window;
             const newWindow = win?.open('', '_blank');
             if (newWindow) {
-              newWindow.document.write(`<pre>${gpxContent}</pre>`);
+              newWindow.document.write(`<pre>${routeContent}</pre>`);
               newWindow.document.title = fileName;
-              Alert.alert('Export', 'GPX content opened in new tab. Right-click and Save As to download.');
+              Alert.alert('Export', 'Route content opened in new tab. Right-click and Save As to download.');
             } else {
               Alert.alert('Export Failed', 'Could not open download. Check popup blocker settings.');
             }
@@ -189,14 +240,13 @@ const RouteScreenEnhanced: React.FC = () => {
 
       // Mobile platform - use file system and sharing
       const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-      await FileSystem.writeAsStringAsync(fileUri, gpxContent);
+      await FileSystem.writeAsStringAsync(fileUri, routeContent);
 
       const sharingAvailable = await Sharing.isAvailableAsync();
       if (sharingAvailable) {
         await Sharing.shareAsync(fileUri, {
-          mimeType: 'application/gpx+xml',
-          dialogTitle: 'Save GPX Route File',
-          UTI: 'com.topografix.gpx',
+          mimeType: mimeType,
+          dialogTitle: `Save ${format} Route File`,
         });
       } else {
         Alert.alert('Export Successful', `Route exported to:\n${fileUri}`);
@@ -204,7 +254,7 @@ const RouteScreenEnhanced: React.FC = () => {
     } catch (error) {
       console.error('Export error:', error);
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      Alert.alert('Export Failed', `Could not export GPX file: ${errorMsg}`);
+      Alert.alert('Export Failed', `Could not export route file: ${errorMsg}`);
     }
   };
 
@@ -379,6 +429,66 @@ const RouteScreenEnhanced: React.FC = () => {
     return `${label} @ ${trimAngle.toFixed(0)}° AWA`;
   };
 
+  // Calculate waypoint details including distance, bearing, elapsed time
+  const getWaypointDetails = (item: Waypoint, index: number) => {
+    const weather = item.weatherForecast;
+
+    // Use pre-calculated values from route planning if available
+    const elapsedHours = item.elapsedTime || 0;
+    const legTime = item.legTime || 0;
+    const distanceFromStart = item.distanceFromStart || 0;
+    const legDistance = item.legDistance || 0;
+    const cog = item.cog || 0;
+    const sog = item.sog || 0;
+
+    // Fallback calculation if not available from route planning
+    let distanceNm = legDistance;
+    let bearing = cog;
+    let speed = sog;
+
+    if (index > 0 && currentRoute && !item.elapsedTime) {
+      const prevWp = currentRoute.waypoints[index - 1];
+      distanceNm = calculateDistance(
+        { latitude: prevWp.latitude, longitude: prevWp.longitude },
+        { latitude: item.latitude, longitude: item.longitude }
+      );
+      bearing = calculateBearing(
+        { latitude: prevWp.latitude, longitude: prevWp.longitude },
+        { latitude: item.latitude, longitude: item.longitude }
+      );
+
+      if (prevWp.estimatedArrival && item.estimatedArrival) {
+        const prevTime = new Date(prevWp.estimatedArrival).getTime();
+        const currTime = new Date(item.estimatedArrival).getTime();
+        const legElapsed = (currTime - prevTime) / (1000 * 60 * 60);
+        if (legElapsed > 0) {
+          speed = distanceNm / legElapsed;
+        }
+      }
+    }
+
+    // Calculate TWA from wind direction and bearing
+    const windDir = weather?.windDirection || weather?.direction || 0;
+    const twa = windDir ? Math.abs(windDir - bearing) % 180 : 0;
+
+    return {
+      distanceNm,
+      distanceFromStart,
+      bearing,
+      elapsedHours, // Cumulative elapsed time from departure
+      legTime, // Time for this leg only
+      speed,
+      windSpeed: weather?.windSpeed || 0,
+      windDirection: windDir,
+      twa,
+      awa: twa * 0.85, // Approximate AWA from TWA
+      cog: bearing,
+      sog: speed,
+      currentSpeed: item.currentSpeed || 0,
+      currentDirection: item.currentDirection || 0,
+    };
+  };
+
   const renderWaypoint = ({ item, index }: { item: Waypoint; index: number }) => {
     // Only check daylight arrival for the final waypoint
     const isLastWaypoint = currentRoute && index === currentRoute.waypoints.length - 1;
@@ -386,11 +496,18 @@ const RouteScreenEnhanced: React.FC = () => {
       ? validateDaylightArrival(item, { latitude: item.latitude, longitude: item.longitude })
       : { isValid: true };
 
+    const details = getWaypointDetails(item, index);
+
     return (
-      <View style={styles.waypointCard}>
+      <TouchableOpacity
+        style={[styles.waypointCard, !daylightCheck.isValid && styles.waypointCardWarning]}
+        onPress={() => openWaypointModal(item)}
+        activeOpacity={0.7}
+      >
+        {/* Header Row - Name and Order */}
         <View style={styles.waypointHeader}>
           <View style={styles.waypointNumber}>
-            <Text style={styles.waypointNumberText}>{item.order}</Text>
+            <Text style={styles.waypointNumberText}>{item.order || index + 1}</Text>
           </View>
           <View style={styles.waypointInfo}>
             <Text style={styles.waypointName}>{item.name}</Text>
@@ -403,42 +520,133 @@ const RouteScreenEnhanced: React.FC = () => {
               <Text style={styles.arrivedText}>✓</Text>
             </View>
           )}
+          <Text style={[styles.modeIndicator, item.useEngine ? styles.engineIndicator : styles.sailIndicator]}>
+            {item.useEngine ? '⚙️' : '⛵'}
+          </Text>
         </View>
 
-        <View style={styles.waypointDetails}>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Mode:</Text>
-            <Text style={[styles.detailValue, item.useEngine && styles.engineMode]}>
-              {item.useEngine ? '⚙️ Engine' : '⛵ Sailing'}
+        {/* Data Grid */}
+        <View style={styles.dataGrid}>
+          {/* Row 1: Time and Position */}
+          <View style={styles.dataRow}>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Total Time</Text>
+              <Text style={styles.dataCellValue}>
+                {`${Math.floor(details.elapsedHours)}:${String(Math.round((details.elapsedHours % 1) * 60)).padStart(2, '0')}`}
+              </Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Leg Time</Text>
+              <Text style={styles.dataCellValue}>
+                {index === 0 ? '--' : `${Math.floor(details.legTime)}:${String(Math.round((details.legTime % 1) * 60)).padStart(2, '0')}`}
+              </Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Total Dist</Text>
+              <Text style={styles.dataCellValue}>{details.distanceFromStart.toFixed(1)} nm</Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Leg Dist</Text>
+              <Text style={styles.dataCellValue}>{index === 0 ? '--' : `${details.distanceNm.toFixed(1)} nm`}</Text>
+            </View>
+          </View>
+
+          {/* Row 2: Navigation */}
+          <View style={styles.dataRow}>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Heading</Text>
+              <Text style={styles.dataCellValue}>{details.bearing.toFixed(0)}°</Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Speed</Text>
+              <Text style={styles.dataCellValue}>{details.speed.toFixed(1)} kts</Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>COG</Text>
+              <Text style={styles.dataCellValue}>{details.cog.toFixed(0)}°</Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>SOG</Text>
+              <Text style={styles.dataCellValue}>{details.sog.toFixed(1)} kts</Text>
+            </View>
+          </View>
+
+          {/* Row 3: Wind Data */}
+          <View style={styles.dataRow}>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Wind</Text>
+              <Text style={styles.dataCellValue}>{details.windSpeed.toFixed(0)} kts</Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Wind Dir</Text>
+              <Text style={styles.dataCellValue}>{details.windDirection.toFixed(0)}°</Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>TWA</Text>
+              <Text style={styles.dataCellValue}>{details.twa.toFixed(0)}°</Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>AWA</Text>
+              <Text style={styles.dataCellValue}>{details.awa.toFixed(0)}°</Text>
+            </View>
+          </View>
+
+          {/* Row 4: Current */}
+          <View style={styles.dataRow}>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Current</Text>
+              <Text style={styles.dataCellValue}>{details.currentSpeed.toFixed(1)} kts</Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Cur Dir</Text>
+              <Text style={styles.dataCellValue}>{details.currentDirection.toFixed(0)}°</Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Mode</Text>
+              <Text style={[styles.dataCellValue, item.useEngine && styles.engineMode]}>
+                {item.useEngine ? 'Engine' : 'Sail'}
+              </Text>
+            </View>
+            <View style={styles.dataCell}>
+              <Text style={styles.dataCellLabel}>Config</Text>
+              <Text style={styles.dataCellValue} numberOfLines={1}>
+                {item.sailConfiguration || 'Main+Jib'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Sail Config and ETA Row */}
+        <View style={styles.waypointFooter}>
+          <View style={styles.sailConfigBox}>
+            <Text style={styles.sailConfigLabel}>Sail Config:</Text>
+            <Text style={[styles.sailConfigValue, item.useEngine && styles.engineMode]}>
+              {item.useEngine ? 'Engine' : (item.sailConfiguration || 'Main+Jib')}
             </Text>
           </View>
-
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Sails:</Text>
-            <Text style={styles.detailValue}>{getSailConfigLabel(item)}</Text>
-          </View>
-
           {item.estimatedArrival && (
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>ETA:</Text>
-              <Text style={[styles.detailValue, !daylightCheck.isValid && styles.nightArrival]}>
-                {item.estimatedArrival.toLocaleString()}
+            <View style={styles.etaBox}>
+              <Text style={styles.etaLabel}>ETA:</Text>
+              <Text style={[styles.etaValue, !daylightCheck.isValid && styles.nightArrival]}>
+                {new Date(item.estimatedArrival).toLocaleString()}
                 {!daylightCheck.isValid && ' 🌙'}
               </Text>
             </View>
           )}
         </View>
 
-        {!daylightCheck.isValid && (
+        {/* Warning for night arrival */}
+        {!daylightCheck.isValid && 'message' in daylightCheck && (
           <View style={styles.warningBox}>
             <Text style={styles.warningText}>⚠️ {daylightCheck.message}</Text>
           </View>
         )}
 
+        {/* Action buttons */}
         <View style={styles.waypointActions}>
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => moveWaypoint(index, 'up')}
+            onPress={(e) => { e.stopPropagation(); moveWaypoint(index, 'up'); }}
             disabled={index === 0}
           >
             <Text style={[styles.actionButtonText, index === 0 && styles.actionButtonDisabled]}>↑</Text>
@@ -446,7 +654,7 @@ const RouteScreenEnhanced: React.FC = () => {
 
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => moveWaypoint(index, 'down')}
+            onPress={(e) => { e.stopPropagation(); moveWaypoint(index, 'down'); }}
             disabled={index === currentRoute!.waypoints.length - 1}
           >
             <Text style={[styles.actionButtonText, index === currentRoute!.waypoints.length - 1 && styles.actionButtonDisabled]}>↓</Text>
@@ -454,21 +662,24 @@ const RouteScreenEnhanced: React.FC = () => {
 
           <TouchableOpacity
             style={[styles.actionButton, styles.editButton]}
-            onPress={() => openWaypointModal(item)}
+            onPress={(e) => { e.stopPropagation(); openWaypointModal(item); }}
           >
             <Text style={styles.actionButtonText}>✎</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.actionButton, styles.deleteButton]}
-            onPress={() => deleteWaypoint(item.id)}
+            onPress={(e) => { e.stopPropagation(); deleteWaypoint(item.id); }}
           >
             <Text style={styles.actionButtonText}>✕</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
+
+  // Calculate route statistics
+  const routeStats = calculateRouteStatistics(currentRoute);
 
   return (
     <View style={styles.container}>
@@ -478,7 +689,43 @@ const RouteScreenEnhanced: React.FC = () => {
         <Text style={styles.headerSubtitle}>
           {currentRoute ? `${currentRoute.waypoints.length} waypoints` : 'No active route'}
         </Text>
+        {currentRoute?.startDate && (
+          <Text style={styles.headerSubtitle}>
+            Departure: {new Date(currentRoute.startDate).toLocaleString()}
+          </Text>
+        )}
+        {currentRoute && currentRoute.waypoints && currentRoute.waypoints.length > 0 && currentRoute.waypoints[currentRoute.waypoints.length - 1].estimatedArrival && (
+          <Text style={styles.headerSubtitle}>
+            Arrival: {new Date(currentRoute.waypoints[currentRoute.waypoints.length - 1].estimatedArrival!).toLocaleString()}
+          </Text>
+        )}
       </View>
+
+      {/* Route Statistics */}
+      {currentRoute && currentRoute.waypoints.length > 0 && (
+        <View style={styles.statsContainer}>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Total Distance</Text>
+            <Text style={styles.statValue}>{routeStats.totalDistance.toFixed(1)} nm</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Avg Wind</Text>
+            <Text style={styles.statValue}>{routeStats.avgWind.toFixed(1)} kts</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Max Wind</Text>
+            <Text style={styles.statValue}>{routeStats.maxWind.toFixed(1)} kts</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Avg Waves</Text>
+            <Text style={styles.statValue}>{routeStats.avgWaves.toFixed(1)} m</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Max Waves</Text>
+            <Text style={styles.statValue}>{routeStats.maxWaves.toFixed(1)} m</Text>
+          </View>
+        </View>
+      )}
 
       {/* Action Buttons */}
       <View style={styles.actionBar}>
@@ -492,10 +739,10 @@ const RouteScreenEnhanced: React.FC = () => {
 
         <TouchableOpacity
           style={[styles.secondaryButton, (!currentRoute || currentRoute.waypoints.length === 0) && styles.buttonDisabled]}
-          onPress={handleExportGPX}
+          onPress={handleExportRoute}
           disabled={!currentRoute || currentRoute.waypoints.length === 0}
         >
-          <Text style={styles.buttonText}>Export GPX</Text>
+          <Text style={styles.buttonText}>Export</Text>
         </TouchableOpacity>
       </View>
 
@@ -919,6 +1166,115 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  // New styles for detailed waypoint grid
+  waypointCardWarning: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+  },
+  modeIndicator: {
+    fontSize: 20,
+    marginLeft: 8,
+  },
+  engineIndicator: {
+    opacity: 1,
+  },
+  sailIndicator: {
+    opacity: 1,
+  },
+  dataGrid: {
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  dataRow: {
+    flexDirection: 'row',
+    marginBottom: 6,
+  },
+  dataCell: {
+    flex: 1,
+    paddingHorizontal: 4,
+  },
+  dataCellLabel: {
+    fontSize: 10,
+    color: '#888',
+    marginBottom: 2,
+  },
+  dataCellValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+  },
+  waypointFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#EEE',
+    marginBottom: 8,
+  },
+  sailConfigBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  sailConfigLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginRight: 4,
+  },
+  sailConfigValue: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#0066CC',
+  },
+  etaBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  etaLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginRight: 4,
+  },
+  etaValue: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  // Route statistics styles
+  statsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+    gap: 8,
+  },
+  statBox: {
+    flex: 1,
+    minWidth: '18%',
+    backgroundColor: '#F5F7FA',
+    padding: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  statLabel: {
+    fontSize: 10,
+    color: '#666',
+    marginBottom: 2,
+  },
+  statValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#0066CC',
   },
 });
 

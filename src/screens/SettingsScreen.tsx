@@ -15,6 +15,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getWindyService, initializeWindyService } from '../services/windyService';
 
 const WINDY_API_KEY_STORAGE = 'windy_api_key';
+export const ROUTE_FORMAT_STORAGE = 'route_format';
+export const ARRIVAL_TIME_WINDOW_STORAGE = 'arrival_time_window_enabled';
+
+export type RouteFormat = 'GPX' | 'KML' | 'KMZ' | 'CSV';
+
+export const ROUTE_FORMATS: { id: RouteFormat; label: string; extension: string; mimeType: string }[] = [
+  { id: 'GPX', label: 'GPX (GPS Exchange Format)', extension: '.gpx', mimeType: 'application/gpx+xml' },
+  { id: 'KML', label: 'KML (Keyhole Markup Language)', extension: '.kml', mimeType: 'application/vnd.google-earth.kml+xml' },
+  { id: 'KMZ', label: 'KMZ (Compressed KML)', extension: '.kmz', mimeType: 'application/vnd.google-earth.kmz' },
+  { id: 'CSV', label: 'CSV (Comma Separated Values)', extension: '.csv', mimeType: 'text/csv' },
+];
 
 const SettingsScreen: React.FC = () => {
   const [windyApiKey, setWindyApiKey] = useState('');
@@ -22,11 +33,33 @@ const SettingsScreen: React.FC = () => {
   const [isValidating, setIsValidating] = useState(false);
   const [validationStatus, setValidationStatus] = useState<'none' | 'valid' | 'invalid'>('none');
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedRouteFormat, setSelectedRouteFormat] = useState<RouteFormat>('GPX');
 
-  // Load saved API key on mount
+  // Load saved settings on mount
   useEffect(() => {
     loadSavedApiKey();
+    loadRouteFormat();
   }, []);
+
+  const loadRouteFormat = async () => {
+    try {
+      const format = await AsyncStorage.getItem(ROUTE_FORMAT_STORAGE);
+      if (format && ['GPX', 'KML', 'KMZ', 'CSV'].includes(format)) {
+        setSelectedRouteFormat(format as RouteFormat);
+      }
+    } catch (err) {
+      console.error('Failed to load route format:', err);
+    }
+  };
+
+  const saveRouteFormat = async (format: RouteFormat) => {
+    try {
+      await AsyncStorage.setItem(ROUTE_FORMAT_STORAGE, format);
+      setSelectedRouteFormat(format);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to save route format preference');
+    }
+  };
 
   const loadSavedApiKey = async () => {
     try {
@@ -222,6 +255,47 @@ const SettingsScreen: React.FC = () => {
         )}
       </View>
 
+      {/* Route Format Selection */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Route Export Format</Text>
+        <Text style={styles.description}>
+          Select the default format for exporting and importing sailing routes.
+        </Text>
+
+        <View style={styles.formatOptions}>
+          {ROUTE_FORMATS.map((format) => (
+            <TouchableOpacity
+              key={format.id}
+              style={[
+                styles.formatOption,
+                selectedRouteFormat === format.id && styles.formatOptionSelected,
+              ]}
+              onPress={() => saveRouteFormat(format.id)}
+            >
+              <View style={styles.formatRadio}>
+                {selectedRouteFormat === format.id && (
+                  <View style={styles.formatRadioSelected} />
+                )}
+              </View>
+              <View style={styles.formatInfo}>
+                <Text style={[
+                  styles.formatLabel,
+                  selectedRouteFormat === format.id && styles.formatLabelSelected,
+                ]}>
+                  {format.id}
+                </Text>
+                <Text style={styles.formatDescription}>{format.label}</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={styles.note}>
+          GPX is recommended for most navigation apps. KML/KMZ work with Google Earth.
+          CSV provides a spreadsheet-compatible format with all waypoint data.
+        </Text>
+      </View>
+
       {/* Help Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>How to Get Your API Key</Text>
@@ -394,6 +468,55 @@ const styles = StyleSheet.create({
   version: {
     fontSize: 12,
     color: '#999',
+  },
+  formatOptions: {
+    marginVertical: 12,
+  },
+  formatOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#DDD',
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: '#FAFAFA',
+  },
+  formatOptionSelected: {
+    borderColor: '#0066CC',
+    backgroundColor: '#E3F2FD',
+  },
+  formatRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#0066CC',
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  formatRadioSelected: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#0066CC',
+  },
+  formatInfo: {
+    flex: 1,
+  },
+  formatLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  formatLabelSelected: {
+    color: '#0066CC',
+  },
+  formatDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
   },
 });
 

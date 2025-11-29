@@ -33,6 +33,10 @@ export interface SimulatedWeather {
   // Boat position simulation
   boatPosition?: GPSCoordinates;
   currentWaypointIndex?: number;
+  // Boat heading in degrees (0-360) - direction boat is pointing
+  boatHeading?: number;
+  // Course over ground in degrees (0-360) - direction boat is moving
+  courseOverGround?: number;
 }
 
 interface StormAlert {
@@ -203,6 +207,21 @@ function calculateDistance(coord1: GPSCoordinates, coord2: GPSCoordinates): numb
   return R * c;
 }
 
+// Calculate bearing (heading) from coord1 to coord2 in degrees (0-360)
+function calculateBearing(coord1: GPSCoordinates, coord2: GPSCoordinates): number {
+  const lat1 = (coord1.latitude * Math.PI) / 180;
+  const lat2 = (coord2.latitude * Math.PI) / 180;
+  const dLon = ((coord2.longitude - coord1.longitude) * Math.PI) / 180;
+
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+
+  let bearing = Math.atan2(y, x) * (180 / Math.PI);
+  bearing = (bearing + 360) % 360; // Normalize to 0-360
+
+  return bearing;
+}
+
 // Check if waypoint is affected by storm
 function isWaypointAffectedByStorm(
   waypoint: Waypoint,
@@ -286,7 +305,7 @@ function generateDeviatedRoute(route: Route, weather: SimulatedWeather): Route {
 }
 
 // Calculate boat position along route based on simulation progress
-function calculateBoatPosition(route: Route | null, hour: number): { position: GPSCoordinates; waypointIndex: number } | null {
+function calculateBoatPosition(route: Route | null, hour: number): { position: GPSCoordinates; waypointIndex: number; heading: number } | null {
   if (!route || route.waypoints.length < 2) return null;
 
   // Assume average speed of ~6 knots, total voyage ~96 hours
@@ -306,9 +325,15 @@ function calculateBoatPosition(route: Route | null, hour: number): { position: G
   const lat = startWp.latitude + legFraction * (endWp.latitude - startWp.latitude);
   const lon = startWp.longitude + legFraction * (endWp.longitude - startWp.longitude);
 
+  const currentPosition = { latitude: lat, longitude: lon };
+
+  // Calculate heading (bearing) to next waypoint
+  const heading = calculateBearing(currentPosition, endWp.coordinates);
+
   return {
-    position: { latitude: lat, longitude: lon },
+    position: currentPosition,
     waypointIndex: currentLegIndex,
+    heading,
   };
 }
 
@@ -369,6 +394,8 @@ function getCurrentWeather(hour: number): SimulatedWeather {
     squalls: interpolatedSqualls,
     boatPosition: boatInfo?.position,
     currentWaypointIndex: boatInfo?.waypointIndex,
+    boatHeading: boatInfo?.heading,
+    courseOverGround: boatInfo?.heading, // COG equals heading in simulation (no drift)
   };
 }
 
@@ -547,4 +574,4 @@ export const simulationService = {
   },
 };
 
-export type { SimulatedWeather, StormAlert };
+export type { StormAlert };

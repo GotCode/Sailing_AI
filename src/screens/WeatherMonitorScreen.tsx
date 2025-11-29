@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { getWeatherMonitoringService } from '../services/weatherMonitoringService';
 import { Route, GPSCoordinates } from '../types/sailing';
+import { ARRIVAL_TIME_WINDOW_STORAGE } from './SettingsScreen';
 
 interface MonitoringConfig {
   enabled: boolean;
@@ -61,10 +62,30 @@ export default function WeatherMonitorScreen() {
   const weatherService = getWeatherMonitoringService();
 
   useEffect(() => {
-    // Load active route and current position on mount
+    // Load active route, current position, and saved settings on mount
     loadActiveRoute();
     getCurrentPosition();
+    loadEnsureDaylightArrivalSetting();
   }, []);
+
+  const loadEnsureDaylightArrivalSetting = async () => {
+    try {
+      const value = await AsyncStorage.getItem(ARRIVAL_TIME_WINDOW_STORAGE);
+      // Default to true if not set
+      const enabled = value === null ? true : value === 'true';
+      setConfig((prev) => ({ ...prev, ensureDaytimeArrival: enabled }));
+    } catch (err) {
+      console.error('Failed to load ensure daylight arrival setting:', err);
+    }
+  };
+
+  const saveEnsureDaylightArrivalSetting = async (enabled: boolean) => {
+    try {
+      await AsyncStorage.setItem(ARRIVAL_TIME_WINDOW_STORAGE, enabled.toString());
+    } catch (err) {
+      console.error('Failed to save ensure daylight arrival setting:', err);
+    }
+  };
 
   useEffect(() => {
     // Load alerts when monitoring is active
@@ -309,9 +330,10 @@ export default function WeatherMonitorScreen() {
           <Text style={styles.label}>Ensure Daylight Arrival</Text>
           <Switch
             value={config.ensureDaytimeArrival}
-            onValueChange={(value) =>
-              setConfig({ ...config, ensureDaytimeArrival: value })
-            }
+            onValueChange={(value) => {
+              setConfig({ ...config, ensureDaytimeArrival: value });
+              saveEnsureDaylightArrivalSetting(value);
+            }}
             disabled={config.enabled}
           />
         </View>

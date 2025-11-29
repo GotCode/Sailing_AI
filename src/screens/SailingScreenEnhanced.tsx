@@ -45,6 +45,7 @@ import {
   sanitizeNumericInput,
 } from '../utils/validation';
 import { parseLocationInput, getCoordinateFormatExamples } from '../utils/coordinateParser';
+import { ARRIVAL_TIME_WINDOW_STORAGE } from './SettingsScreen';
 
 const SailingScreenEnhanced: React.FC = () => {
   const { user } = useAuth();
@@ -158,7 +159,14 @@ const SailingScreenEnhanced: React.FC = () => {
     try {
       const stored = await AsyncStorage.getItem(`routes_${user?.id || 'guest'}`);
       if (stored) {
-        setSavedRoutes(JSON.parse(stored));
+        const routes: Route[] = JSON.parse(stored);
+        // Sort routes newest to oldest by createdAt or updatedAt
+        routes.sort((a, b) => {
+          const dateA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+          const dateB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+          return dateB - dateA; // Descending order (newest first)
+        });
+        setSavedRoutes(routes);
       }
     } catch (err) {
       console.error('Failed to load saved routes:', err);
@@ -794,13 +802,22 @@ const SailingScreenEnhanced: React.FC = () => {
     setError(null);
 
     try {
+      // Load arrival time window setting
+      let ensureDaytimeArrival = true; // Default to enabled
+      try {
+        const arrivalWindowSetting = await AsyncStorage.getItem(ARRIVAL_TIME_WINDOW_STORAGE);
+        ensureDaytimeArrival = arrivalWindowSetting === null ? true : arrivalWindowSetting === 'true';
+      } catch (err) {
+        console.log('Using default arrival time window setting (enabled)');
+      }
+
       const config: RoutePlanningConfig = {
         startPoint,
         destination,
         sailingMode,
         windThreshold: threshold,
         avoidStorms: true,
-        ensureDaytimeArrival: true,
+        ensureDaytimeArrival,
         maxDailyDistance: 150,
         preferredWaypointInterval: 50,
       };
@@ -1228,6 +1245,7 @@ const SailingScreenEnhanced: React.FC = () => {
               ? simulatedWeather.windSpeed
               : parseFloat(windSpeed) || 10
           }
+          boatHeading={simulatedWeather?.boatHeading || 0}
           sailRecommendation={sailRecommendation}
           windDirection={simulatedWeather?.windDirection}
           waveHeight={simulatedWeather?.waveHeight}
@@ -1511,25 +1529,38 @@ const SailingScreenEnhanced: React.FC = () => {
             <FlatList
               data={savedRoutes}
               keyExtractor={(item, index) => `route-${index}`}
-              renderItem={({ item, index }) => (
-                <View style={styles.savedRouteItem}>
-                  <TouchableOpacity
-                    style={styles.savedRouteContent}
-                    onPress={() => loadRouteFromProfile(item)}
-                  >
-                    <Text style={styles.savedRouteName}>{item.name}</Text>
-                    <Text style={styles.savedRouteInfo}>
-                      {item.waypoints.length} waypoints
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.deleteRouteButton}
-                    onPress={() => deleteRouteFromProfile(index)}
-                  >
-                    <Text style={styles.deleteRouteButtonText}>Delete</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+              renderItem={({ item, index }) => {
+                const savedDate = item.updatedAt || item.createdAt;
+                const dateStr = savedDate
+                  ? new Date(savedDate).toLocaleString(undefined, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                  : 'Unknown date';
+                return (
+                  <View style={styles.savedRouteItem}>
+                    <TouchableOpacity
+                      style={styles.savedRouteContent}
+                      onPress={() => loadRouteFromProfile(item)}
+                    >
+                      <Text style={styles.savedRouteName}>{item.name}</Text>
+                      <Text style={styles.savedRouteInfo}>
+                        {item.waypoints.length} waypoints
+                      </Text>
+                      <Text style={styles.savedRouteTimestamp}>{dateStr}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.deleteRouteButton}
+                      onPress={() => deleteRouteFromProfile(index)}
+                    >
+                      <Text style={styles.deleteRouteButtonText}>Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              }}
             />
           )}
         </View>
@@ -2126,6 +2157,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginTop: 4,
+  },
+  savedRouteTimestamp: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 2,
+    fontStyle: 'italic',
   },
   deleteRouteButton: {
     backgroundColor: '#F44336',

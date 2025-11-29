@@ -137,6 +137,87 @@ export async function fetchRouteCorridorWeather(
 }
 
 /**
+ * Calculate required departure time to ensure daylight arrival
+ */
+function calculateDepartureForDaylightArrival(
+  destination: GPSCoordinates,
+  totalSailingTimeHours: number,
+  preferredDeparture: Date
+): { departureTime: Date; adjustedForDaylight: boolean; message?: string } {
+  // Get sunset at destination for the estimated arrival day
+  const estimatedArrival = new Date(preferredDeparture);
+  estimatedArrival.setHours(estimatedArrival.getHours() + totalSailingTimeHours);
+
+  const { sunrise, sunset } = calculateSunriseSunset(destination, estimatedArrival);
+
+  // Check if arrival is during daylight
+  if (isDaylight(estimatedArrival, destination)) {
+    return {
+      departureTime: preferredDeparture,
+      adjustedForDaylight: false,
+    };
+  }
+
+  // Calculate the target arrival time (midday to allow buffer)
+  const targetArrival = new Date(estimatedArrival);
+
+  // If arriving before sunrise, adjust to arrive at sunrise + 1 hour buffer
+  if (estimatedArrival < sunrise) {
+    const arrivalAfterSunrise = new Date(sunrise);
+    arrivalAfterSunrise.setHours(arrivalAfterSunrise.getHours() + 1);
+    const hoursToDelay = (arrivalAfterSunrise.getTime() - estimatedArrival.getTime()) / (1000 * 60 * 60);
+    const adjustedDeparture = new Date(preferredDeparture);
+    adjustedDeparture.setHours(adjustedDeparture.getHours() + hoursToDelay);
+    return {
+      departureTime: adjustedDeparture,
+      adjustedForDaylight: true,
+      message: `Departure delayed by ${hoursToDelay.toFixed(1)} hours to ensure arrival after sunrise`,
+    };
+  }
+
+  // If arriving after sunset, adjust to arrive 1 hour before sunset
+  if (estimatedArrival > sunset) {
+    // Option 1: Leave earlier same day to arrive before sunset
+    const arrivalBeforeSunset = new Date(sunset);
+    arrivalBeforeSunset.setHours(arrivalBeforeSunset.getHours() - 1);
+    const hoursToAdvance = (estimatedArrival.getTime() - arrivalBeforeSunset.getTime()) / (1000 * 60 * 60);
+    const adjustedDeparture = new Date(preferredDeparture);
+    adjustedDeparture.setHours(adjustedDeparture.getHours() - hoursToAdvance);
+
+    // Check if adjusted departure is still reasonable (not before midnight)
+    const departureHour = adjustedDeparture.getHours();
+    if (departureHour >= 4) {
+      // Depart earlier same day
+      return {
+        departureTime: adjustedDeparture,
+        adjustedForDaylight: true,
+        message: `Departure advanced by ${hoursToAdvance.toFixed(1)} hours to arrive before sunset`,
+      };
+    }
+
+    // Option 2: Delay departure to next day for daylight arrival
+    const nextDaySunrise = new Date(sunrise);
+    nextDaySunrise.setDate(nextDaySunrise.getDate() + 1);
+    nextDaySunrise.setHours(nextDaySunrise.getHours() + 1);
+    const targetArrivalNextDay = nextDaySunrise;
+    const delayHours = (targetArrivalNextDay.getTime() - estimatedArrival.getTime()) / (1000 * 60 * 60);
+    const delayedDeparture = new Date(preferredDeparture);
+    delayedDeparture.setHours(delayedDeparture.getHours() + delayHours);
+
+    return {
+      departureTime: delayedDeparture,
+      adjustedForDaylight: true,
+      message: `Departure delayed to next day for daylight arrival`,
+    };
+  }
+
+  return {
+    departureTime: preferredDeparture,
+    adjustedForDaylight: false,
+  };
+}
+
+/**
  * Generate optimized sailing route with waypoints
  */
 export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
@@ -170,7 +251,25 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
 
   // Calculate average sailing speed (conservative estimate: 6 knots)
   const averageSpeed = 6;
+
+  // First pass: calculate total sailing time
+  let totalSailingTime = totalDistance / averageSpeed;
+
+  // Determine departure time
+  let departureTime = new Date();
+  let daylightAdjustment = { adjustedForDaylight: false, message: undefined as string | undefined };
+
+  if (ensureDaytimeArrival) {
+    const result = calculateDepartureForDaylightArrival(destination, totalSailingTime, departureTime);
+    departureTime = result.departureTime;
+    daylightAdjustment = { adjustedForDaylight: result.adjustedForDaylight, message: result.message };
+    if (result.message) {
+      console.log('Daylight arrival adjustment:', result.message);
+    }
+  }
+
   let cumulativeTime = 0; // in hours
+  let cumulativeDistance = 0; // in nautical miles
 
   for (let i = 0; i < numWaypoints; i++) {
     const fraction = i / (numWaypoints - 1);
@@ -188,23 +287,30 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
       }
     }
 
-    // Calculate sailing speed for this leg
-    let segmentDistance = 0;
+    // Calculate leg distance and time
+    let legDistance = 0;
+    let legBearing = bearing;
     if (i > 0) {
       const prevCoords = waypoints[i - 1];
-      segmentDistance = calculateDistance(
+      legDistance = calculateDistance(
+        { latitude: prevCoords.latitude, longitude: prevCoords.longitude },
+        coordinates
+      );
+      legBearing = calculateBearing(
         { latitude: prevCoords.latitude, longitude: prevCoords.longitude },
         coordinates
       );
     }
 
-    // Estimate time for this segment
-    const segmentTime = segmentDistance / averageSpeed; // hours
-    cumulativeTime += segmentTime;
+    // Calculate leg time based on conditions
+    const legSpeed = averageSpeed; // Could be adjusted based on weather
+    const legTime = legDistance > 0 ? legDistance / legSpeed : 0;
+    cumulativeTime += legTime;
+    cumulativeDistance += legDistance;
 
-    // Calculate estimated arrival time
-    const estimatedArrival = new Date();
-    estimatedArrival.setHours(estimatedArrival.getHours() + cumulativeTime);
+    // Calculate estimated arrival time based on adjusted departure
+    const estimatedArrival = new Date(departureTime);
+    estimatedArrival.setTime(estimatedArrival.getTime() + cumulativeTime * 60 * 60 * 1000);
 
     // Determine sail configuration based on weather
     let sailConfig;
@@ -213,7 +319,7 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
     if (nearestWeather) {
       // Calculate true wind angle relative to course
       const windDirection = nearestWeather.windDirection;
-      const trueWindAngle = Math.abs(windDirection - bearing);
+      const trueWindAngle = Math.abs(windDirection - legBearing);
 
       if (nearestWeather.windSpeed < windThreshold) {
         useEngine = true;
@@ -266,17 +372,26 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
         ...nearestWeather,
         direction: nearestWeather.windDirection,
       } : undefined,
+      // New timing and distance fields
+      elapsedTime: cumulativeTime,
+      legTime: legTime,
+      distanceFromStart: cumulativeDistance,
+      legDistance: legDistance,
+      cog: legBearing,
+      sog: legSpeed,
     };
 
     waypoints.push(waypoint);
   }
 
-  // Check daylight arrival for destination
-  const lastWaypoint = waypoints[waypoints.length - 1];
-  if (ensureDaytimeArrival && lastWaypoint.estimatedArrival) {
-    if (!isDaylight(lastWaypoint.estimatedArrival, destination)) {
-      // Adjust timing - add a holding waypoint or slow down
-      console.warn('Destination arrival outside daylight hours. Consider adjusting departure time or adding overnight waypoint.');
+  // Validate daylight arrival for all waypoints
+  for (let i = 0; i < waypoints.length; i++) {
+    const wp = waypoints[i];
+    if (wp.estimatedArrival) {
+      const validation = validateDaylightArrival(wp, wp.coordinates);
+      if (!validation.isValid) {
+        console.warn(`Waypoint ${wp.name}: ${validation.message}`);
+      }
     }
   }
 
@@ -286,6 +401,7 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
     waypoints,
     createdAt: new Date(),
     updatedAt: new Date(),
+    startDate: departureTime,
   };
 
   return route;

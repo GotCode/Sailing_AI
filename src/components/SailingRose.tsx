@@ -207,15 +207,28 @@ const SailingRose: React.FC<SailingRoseProps> = ({
             );
           })}
 
-          {/* Boat icon (triangle at center pointing up) */}
-          <Path
-            d={`M ${center} ${center - 25}
-                L ${center + 8} ${center + 10}
-                L ${center - 8} ${center + 10} Z`}
-            fill="#0066CC"
-            stroke="#FFFFFF"
-            strokeWidth={1}
-          />
+          {/* Boat icon (triangle at center, rotates based on heading) */}
+          <G
+            rotation={boatHeading}
+            origin={`${center}, ${center}`}
+          >
+            <Path
+              d={`M ${center} ${center - 25}
+                  L ${center + 8} ${center + 10}
+                  L ${center - 8} ${center + 10} Z`}
+              fill="#0066CC"
+              stroke="#FFFFFF"
+              strokeWidth={1}
+            />
+            {/* Hull outline for better visibility */}
+            <Path
+              d={`M ${center - 6} ${center + 5}
+                  Q ${center} ${center + 15} ${center + 6} ${center + 5}`}
+              fill="none"
+              stroke="#FFFFFF"
+              strokeWidth={1}
+            />
+          </G>
 
           {/* Wind direction indicator - Starboard */}
           <Circle
@@ -292,6 +305,12 @@ const SailingRose: React.FC<SailingRoseProps> = ({
           <Text style={styles.infoLabel}>TWA:</Text>
           <Text style={styles.infoValue}>{trueWindAngle}°</Text>
         </View>
+        {boatHeading !== undefined && boatHeading !== 0 && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Boat Heading:</Text>
+            <Text style={styles.infoValue}>{boatHeading.toFixed(0)}°</Text>
+          </View>
+        )}
 
         {/* Additional simulation data */}
         {windDirection !== undefined && (

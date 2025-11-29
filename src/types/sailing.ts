@@ -64,6 +64,14 @@ export interface Waypoint {
   useEngine?: boolean;
   estimatedArrival?: Date;
   weatherForecast?: WindForecast;
+  elapsedTime?: number; // Cumulative elapsed time in hours from departure
+  legTime?: number; // Time for this leg only in hours
+  distanceFromStart?: number; // Cumulative distance in nautical miles
+  legDistance?: number; // Distance for this leg only in nautical miles
+  cog?: number; // Course over ground in degrees
+  sog?: number; // Speed over ground in knots
+  currentSpeed?: number; // Current speed in knots
+  currentDirection?: number; // Current direction in degrees
 }
 
 export interface Route {
