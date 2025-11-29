@@ -72,6 +72,7 @@ export interface Route {
   waypoints: Waypoint[];
   createdAt: Date;
   updatedAt: Date;
+  startDate?: Date; // Planned departure date
 }
 
 export interface NavigationRecommendation {

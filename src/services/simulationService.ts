@@ -24,6 +24,15 @@ export interface SimulatedWeather {
   stormLocation?: GPSCoordinates;
   stormRadius?: number; // nautical miles
   conditions: 'good' | 'moderate' | 'rough' | 'storm';
+  // Squall support
+  squalls?: Array<{
+    location: GPSCoordinates;
+    radius: number;
+    windSpeed: number;
+  }>;
+  // Boat position simulation
+  boatPosition?: GPSCoordinates;
+  currentWaypointIndex?: number;
 }
 
 interface StormAlert {
@@ -47,8 +56,9 @@ const weatherScenarios: SimulatedWeather[] = [
     gustSpeed: 15,
     hasStorm: false,
     conditions: 'good',
+    squalls: [],
   },
-  // Hour 12: Wind building
+  // Hour 12: Wind building, first squall appears
   {
     hour: 12,
     windSpeed: 18,
@@ -57,8 +67,15 @@ const weatherScenarios: SimulatedWeather[] = [
     gustSpeed: 22,
     hasStorm: false,
     conditions: 'moderate',
+    squalls: [
+      {
+        location: { latitude: 30.0, longitude: -67.0 },
+        radius: 15,
+        windSpeed: 28,
+      },
+    ],
   },
-  // Hour 24: Storm developing
+  // Hour 24: Storm developing, multiple squalls
   {
     hour: 24,
     windSpeed: 25,
@@ -69,6 +86,18 @@ const weatherScenarios: SimulatedWeather[] = [
     stormLocation: { latitude: 28.5, longitude: -70.0 },
     stormRadius: 50,
     conditions: 'rough',
+    squalls: [
+      {
+        location: { latitude: 29.5, longitude: -68.5 },
+        radius: 12,
+        windSpeed: 35,
+      },
+      {
+        location: { latitude: 27.5, longitude: -69.0 },
+        radius: 10,
+        windSpeed: 30,
+      },
+    ],
   },
   // Hour 36: Storm at peak - requires rerouting
   {
@@ -81,6 +110,23 @@ const weatherScenarios: SimulatedWeather[] = [
     stormLocation: { latitude: 27.0, longitude: -72.0 },
     stormRadius: 75,
     conditions: 'storm',
+    squalls: [
+      {
+        location: { latitude: 28.0, longitude: -70.5 },
+        radius: 15,
+        windSpeed: 40,
+      },
+      {
+        location: { latitude: 26.0, longitude: -71.5 },
+        radius: 12,
+        windSpeed: 38,
+      },
+      {
+        location: { latitude: 29.0, longitude: -73.0 },
+        radius: 10,
+        windSpeed: 32,
+      },
+    ],
   },
   // Hour 48: Storm moving, still affecting route
   {
@@ -93,8 +139,15 @@ const weatherScenarios: SimulatedWeather[] = [
     stormLocation: { latitude: 26.0, longitude: -74.0 },
     stormRadius: 60,
     conditions: 'storm',
+    squalls: [
+      {
+        location: { latitude: 27.0, longitude: -73.0 },
+        radius: 12,
+        windSpeed: 35,
+      },
+    ],
   },
-  // Hour 60: Storm clearing
+  // Hour 60: Storm clearing, residual squall
   {
     hour: 60,
     windSpeed: 20,
@@ -103,6 +156,13 @@ const weatherScenarios: SimulatedWeather[] = [
     gustSpeed: 25,
     hasStorm: false,
     conditions: 'moderate',
+    squalls: [
+      {
+        location: { latitude: 25.5, longitude: -75.5 },
+        radius: 8,
+        windSpeed: 26,
+      },
+    ],
   },
   // Hour 72: Good conditions return
   {
@@ -113,6 +173,7 @@ const weatherScenarios: SimulatedWeather[] = [
     gustSpeed: 18,
     hasStorm: false,
     conditions: 'good',
+    squalls: [],
   },
 ];
 
@@ -224,6 +285,33 @@ function generateDeviatedRoute(route: Route, weather: SimulatedWeather): Route {
   };
 }
 
+// Calculate boat position along route based on simulation progress
+function calculateBoatPosition(route: Route | null, hour: number): { position: GPSCoordinates; waypointIndex: number } | null {
+  if (!route || route.waypoints.length < 2) return null;
+
+  // Assume average speed of ~6 knots, total voyage ~96 hours
+  const totalVoyageHours = 96;
+  const progress = Math.min(hour / totalVoyageHours, 1);
+
+  // Calculate which leg we're on
+  const totalLegs = route.waypoints.length - 1;
+  const legProgress = progress * totalLegs;
+  const currentLegIndex = Math.min(Math.floor(legProgress), totalLegs - 1);
+  const legFraction = legProgress - currentLegIndex;
+
+  const startWp = route.waypoints[currentLegIndex];
+  const endWp = route.waypoints[currentLegIndex + 1];
+
+  // Interpolate position
+  const lat = startWp.latitude + legFraction * (endWp.latitude - startWp.latitude);
+  const lon = startWp.longitude + legFraction * (endWp.longitude - startWp.longitude);
+
+  return {
+    position: { latitude: lat, longitude: lon },
+    waypointIndex: currentLegIndex,
+  };
+}
+
 // Get current weather based on simulation hour
 function getCurrentWeather(hour: number): SimulatedWeather {
   // Find the two scenarios to interpolate between
@@ -255,6 +343,19 @@ function getCurrentWeather(hour: number): SimulatedWeather {
   else if (windSpeed >= 15) conditions = 'moderate';
   else conditions = 'good';
 
+  // Calculate boat position
+  const boatInfo = calculateBoatPosition(state.route, hour);
+
+  // Interpolate squall positions (they move slightly over time)
+  const squalls = (t > 0.5 ? nextScenario.squalls : prevScenario.squalls) || [];
+  const interpolatedSqualls = squalls.map(sq => ({
+    ...sq,
+    location: {
+      latitude: sq.location.latitude + (Math.random() - 0.5) * 0.2, // Small random movement
+      longitude: sq.location.longitude + (Math.random() - 0.5) * 0.2,
+    },
+  }));
+
   return {
     hour,
     windSpeed,
@@ -265,16 +366,45 @@ function getCurrentWeather(hour: number): SimulatedWeather {
     stormLocation: nextScenario.stormLocation,
     stormRadius: nextScenario.stormRadius,
     conditions,
+    squalls: interpolatedSqualls,
+    boatPosition: boatInfo?.position,
+    currentWaypointIndex: boatInfo?.waypointIndex,
   };
 }
 
 // Check for alerts based on weather
-function checkForAlerts(weather: SimulatedWeather, route: Route | null): StormAlert | null {
-  if (!route) return null;
+function checkForAlerts(weather: SimulatedWeather, route: Route | null): StormAlert[] {
+  if (!route) return [];
 
-  const affectedWaypoints: string[] = [];
+  const alerts: StormAlert[] = [];
 
+  // Check for squalls first (smaller, more localized)
+  if (weather.squalls && weather.squalls.length > 0) {
+    for (const squall of weather.squalls) {
+      const squallAffectedWaypoints: string[] = [];
+      for (const waypoint of route.waypoints) {
+        if (isWaypointAffectedByStorm(waypoint, squall.location, squall.radius)) {
+          squallAffectedWaypoints.push(waypoint.name);
+        }
+      }
+
+      if (squallAffectedWaypoints.length > 0) {
+        alerts.push({
+          id: `squall-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: 'squall',
+          severity: squall.windSpeed > 35 ? 'warning' : 'advisory',
+          message: `Squall detected! Localized winds to ${squall.windSpeed.toFixed(0)} kts. Near waypoints: ${squallAffectedWaypoints.join(', ')}. Prepare for sudden wind increase.`,
+          location: squall.location,
+          timestamp: new Date(),
+          affectedWaypoints: squallAffectedWaypoints,
+        });
+      }
+    }
+  }
+
+  // Check for main storm
   if (weather.hasStorm && weather.stormLocation && weather.stormRadius) {
+    const affectedWaypoints: string[] = [];
     // Check which waypoints are affected
     for (const waypoint of route.waypoints) {
       if (isWaypointAffectedByStorm(waypoint, weather.stormLocation, weather.stormRadius)) {
@@ -283,7 +413,7 @@ function checkForAlerts(weather: SimulatedWeather, route: Route | null): StormAl
     }
 
     if (affectedWaypoints.length > 0) {
-      return {
+      alerts.push({
         id: `storm-${Date.now()}`,
         type: 'storm',
         severity: weather.windSpeed > 30 ? 'warning' : 'watch',
@@ -291,13 +421,13 @@ function checkForAlerts(weather: SimulatedWeather, route: Route | null): StormAl
         location: weather.stormLocation,
         timestamp: new Date(),
         affectedWaypoints,
-      };
+      });
     }
   }
 
-  // High wind alert
-  if (weather.windSpeed > 25 && !weather.hasStorm) {
-    return {
+  // High wind alert (if no storm)
+  if (weather.windSpeed > 25 && !weather.hasStorm && alerts.length === 0) {
+    alerts.push({
       id: `wind-${Date.now()}`,
       type: 'high_wind',
       severity: weather.windSpeed > 35 ? 'warning' : 'advisory',
@@ -305,12 +435,12 @@ function checkForAlerts(weather: SimulatedWeather, route: Route | null): StormAl
       location: route.waypoints[0].coordinates,
       timestamp: new Date(),
       affectedWaypoints: [],
-    };
+    });
   }
 
   // High wave alert
   if (weather.waveHeight > 3.0) {
-    return {
+    alerts.push({
       id: `wave-${Date.now()}`,
       type: 'high_waves',
       severity: weather.waveHeight > 4.0 ? 'warning' : 'advisory',
@@ -318,10 +448,10 @@ function checkForAlerts(weather: SimulatedWeather, route: Route | null): StormAl
       location: route.waypoints[0].coordinates,
       timestamp: new Date(),
       affectedWaypoints: [],
-    };
+    });
   }
 
-  return null;
+  return alerts;
 }
 
 // Run one simulation tick
@@ -335,14 +465,17 @@ function simulationTick() {
     state.onWeatherUpdate(weather);
   }
 
-  // Check for alerts
-  const alert = checkForAlerts(weather, state.route);
-  if (alert && state.onStormAlert) {
-    state.onStormAlert(alert);
+  // Check for alerts (now returns array)
+  const alerts = checkForAlerts(weather, state.route);
+  if (alerts.length > 0 && state.onStormAlert) {
+    // Process each alert
+    for (const alert of alerts) {
+      state.onStormAlert(alert);
 
-    // Also notify the weather monitoring service
-    const monitoringService = getWeatherMonitoringService();
-    monitoringService.addSimulatedAlert(alert);
+      // Also notify the weather monitoring service
+      const monitoringService = getWeatherMonitoringService();
+      monitoringService.addSimulatedAlert(alert);
+    }
   }
 
   // Generate deviated route if storm affects waypoints

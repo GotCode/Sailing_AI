@@ -11,6 +11,10 @@ interface SailingRoseProps {
   windSpeed: number; // Wind speed in knots
   boatHeading?: number; // Optional boat heading for display
   sailRecommendation?: SailRecommendation; // Optional sail recommendation to display
+  windDirection?: number; // True wind direction in degrees (0-360)
+  waveHeight?: number; // Wave height in meters
+  conditions?: 'good' | 'moderate' | 'rough' | 'storm'; // Weather conditions
+  isSimulation?: boolean; // Whether data is from simulation
 }
 
 const SailingRose: React.FC<SailingRoseProps> = ({
@@ -18,6 +22,10 @@ const SailingRose: React.FC<SailingRoseProps> = ({
   windSpeed,
   boatHeading = 0,
   sailRecommendation,
+  windDirection,
+  waveHeight,
+  conditions,
+  isSimulation = false,
 }) => {
   const size = 220;
   const center = size / 2;
@@ -52,6 +60,17 @@ const SailingRose: React.FC<SailingRoseProps> = ({
     if (twa < 110) return '#2196F3'; // Beam reach - optimal
     if (twa < 150) return '#4CAF50'; // Broad reach - good
     return '#FF9800'; // Running
+  };
+
+  // Get color based on weather conditions
+  const getConditionsColor = (cond?: string): string => {
+    switch (cond) {
+      case 'storm': return '#D32F2F';
+      case 'rough': return '#FF9800';
+      case 'moderate': return '#FBC02D';
+      case 'good': return '#4CAF50';
+      default: return '#666';
+    }
   };
 
   // Get short sail configuration name
@@ -252,6 +271,13 @@ const SailingRose: React.FC<SailingRoseProps> = ({
 
       {/* Info display */}
       <View style={styles.infoContainer}>
+        {/* Simulation indicator */}
+        {isSimulation && (
+          <View style={styles.simulationBadge}>
+            <Text style={styles.simulationBadgeText}>SIMULATION</Text>
+          </View>
+        )}
+
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Point of Sail:</Text>
           <Text style={[styles.infoValue, { color: getWindColor(trueWindAngle) }]}>
@@ -266,6 +292,29 @@ const SailingRose: React.FC<SailingRoseProps> = ({
           <Text style={styles.infoLabel}>TWA:</Text>
           <Text style={styles.infoValue}>{trueWindAngle}°</Text>
         </View>
+
+        {/* Additional simulation data */}
+        {windDirection !== undefined && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Wind Direction:</Text>
+            <Text style={styles.infoValue}>{windDirection}°</Text>
+          </View>
+        )}
+        {waveHeight !== undefined && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Wave Height:</Text>
+            <Text style={styles.infoValue}>{waveHeight.toFixed(1)} m</Text>
+          </View>
+        )}
+        {conditions && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Conditions:</Text>
+            <Text style={[styles.infoValue, { color: getConditionsColor(conditions) }]}>
+              {conditions.charAt(0).toUpperCase() + conditions.slice(1)}
+            </Text>
+          </View>
+        )}
+
         {sailRecommendation && (
           <>
             <View style={styles.divider} />
@@ -349,6 +398,20 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#E0E0E0',
     marginVertical: 8,
+  },
+  simulationBadge: {
+    backgroundColor: '#9C27B0',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  simulationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
   sailConfigText: {
     color: '#0066CC',

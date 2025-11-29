@@ -1,7 +1,7 @@
 // Enhanced Route Screen with Sail Configuration, Engine Mode, and Daylight Arrival Validation
 // Comprehensive route management with all new features
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,21 +13,21 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import {
   Route,
   Waypoint,
-  SailConfiguration,
-  SailingMode,
 } from '../types/sailing';
 import { parseGPX, generateGPX } from '../utils/gpxHandler';
-import { recommendSailConfiguration } from '../utils/sailingCalculations';
 import { validateDaylightArrival } from '../services/routePlanningService';
+import { formatToDDM } from '../utils/coordinateParser';
 
 const RouteScreenEnhanced: React.FC = () => {
-  const [routes, setRoutes] = useState<Route[]>([]);
   const [currentRoute, setCurrentRoute] = useState<Route | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingWaypoint, setEditingWaypoint] = useState<Waypoint | null>(null);
@@ -39,29 +39,38 @@ const RouteScreenEnhanced: React.FC = () => {
   const [useEngine, setUseEngine] = useState(false);
   const [selectedSailConfig, setSelectedSailConfig] = useState<string>('main+jib');
 
-  // Load exported route from AsyncStorage on mount
-  useEffect(() => {
-    const loadExportedRoute = async () => {
-      try {
-        const stored = await AsyncStorage.getItem('activeRoute');
-        if (stored) {
-          const route = JSON.parse(stored);
-          // Ensure dates are properly parsed
-          if (route.createdAt) route.createdAt = new Date(route.createdAt);
-          if (route.updatedAt) route.updatedAt = new Date(route.updatedAt);
-          route.waypoints = route.waypoints.map((wp: any) => ({
-            ...wp,
-            estimatedArrival: wp.estimatedArrival ? new Date(wp.estimatedArrival) : undefined,
-            arrivalTime: wp.arrivalTime ? new Date(wp.arrivalTime) : undefined,
-          }));
-          setCurrentRoute(route);
-        }
-      } catch (err) {
-        console.error('Failed to load exported route:', err);
+  // Load exported route from AsyncStorage when tab becomes focused
+  const loadExportedRoute = useCallback(async () => {
+    try {
+      console.log('Loading route from AsyncStorage...');
+      const stored = await AsyncStorage.getItem('activeRoute');
+      if (stored) {
+        const route = JSON.parse(stored);
+        // Ensure dates are properly parsed
+        if (route.createdAt) route.createdAt = new Date(route.createdAt);
+        if (route.updatedAt) route.updatedAt = new Date(route.updatedAt);
+        if (route.startDate) route.startDate = new Date(route.startDate);
+        route.waypoints = route.waypoints.map((wp: any) => ({
+          ...wp,
+          estimatedArrival: wp.estimatedArrival ? new Date(wp.estimatedArrival) : undefined,
+          arrivalTime: wp.arrivalTime ? new Date(wp.arrivalTime) : undefined,
+        }));
+        console.log('Loaded route with', route.waypoints.length, 'waypoints');
+        setCurrentRoute(route);
+      } else {
+        console.log('No route found in AsyncStorage');
       }
-    };
-    loadExportedRoute();
+    } catch (err) {
+      console.error('Failed to load exported route:', err);
+    }
   }, []);
+
+  // Reload route every time the screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      loadExportedRoute();
+    }, [loadExportedRoute])
+  );
 
   // Sail configuration options
   const sailConfigurations = [
@@ -84,44 +93,118 @@ const RouteScreenEnhanced: React.FC = () => {
 
       const fileUri = result.assets[0].uri;
       const gpxContent = await FileSystem.readAsStringAsync(fileUri);
-      const waypoints = parseGPX(gpxContent);
+      const parseResult = await parseGPX(gpxContent);
 
-      if (waypoints.length === 0) {
-        Alert.alert('Error', 'No waypoints found in GPX file');
+      if (parseResult.error || parseResult.waypoints.length === 0) {
+        Alert.alert('Error', parseResult.error || 'No waypoints found in GPX file');
         return;
       }
 
       const newRoute: Route = {
         id: `route-${Date.now()}`,
         name: result.assets[0].name.replace('.gpx', ''),
-        waypoints,
+        waypoints: parseResult.waypoints,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
 
       setCurrentRoute(newRoute);
-      Alert.alert('Success', `Imported ${waypoints.length} waypoints`);
+      Alert.alert('Success', `Imported ${parseResult.waypoints.length} waypoints`);
     } catch (error) {
       Alert.alert('Import Failed', 'Could not import GPX file');
     }
   };
 
   const handleExportGPX = async () => {
+    console.log('Export GPX clicked, currentRoute:', currentRoute);
     if (!currentRoute || currentRoute.waypoints.length === 0) {
-      Alert.alert('No Route', 'Please create a route first');
+      Alert.alert('No Route', 'Please create a route with waypoints first, or use "Plan Route Automatically" on the Sailing tab.');
       return;
     }
+    console.log('Exporting route with', currentRoute.waypoints.length, 'waypoints');
 
     try {
-      const gpxContent = generateGPX(currentRoute);
-      const fileName = `${currentRoute.name.replace(/\s/g, '_')}.gpx`;
-      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+      // Ensure route has proper date objects before generating GPX
+      const routeForExport = {
+        ...currentRoute,
+        createdAt: currentRoute.createdAt instanceof Date ? currentRoute.createdAt : new Date(currentRoute.createdAt || Date.now()),
+        updatedAt: currentRoute.updatedAt instanceof Date ? currentRoute.updatedAt : new Date(currentRoute.updatedAt || Date.now()),
+      };
 
+      const gpxContent = generateGPX(routeForExport);
+
+      // Generate filename from Start-End coordinates and start date
+      const startWp = currentRoute.waypoints[0];
+      const endWp = currentRoute.waypoints[currentRoute.waypoints.length - 1];
+      const startDate = currentRoute.startDate ? new Date(currentRoute.startDate) : new Date();
+      const dateStr = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      const startCoords = `${startWp.latitude.toFixed(2)}_${startWp.longitude.toFixed(2)}`;
+      const endCoords = `${endWp.latitude.toFixed(2)}_${endWp.longitude.toFixed(2)}`;
+      const fileName = `Route_${startCoords}_to_${endCoords}_${dateStr}.gpx`.replace(/[^\w\d.-]/g, '_');
+
+      // Web platform - direct download using data URI (more reliable)
+      if (Platform.OS === 'web') {
+        console.log('Web export: creating download for', fileName);
+        console.log('GPX content length:', gpxContent.length);
+        try {
+          // Use data URI approach which is more reliable across browsers
+          const dataUri = 'data:application/gpx+xml;charset=utf-8,' + encodeURIComponent(gpxContent);
+          // Access DOM via global for React Native Web compatibility
+          const doc = (global as any).document;
+          const win = (global as any).window;
+          if (doc && win) {
+            const link = doc.createElement('a');
+            link.setAttribute('href', dataUri);
+            link.setAttribute('download', fileName);
+            link.style.visibility = 'hidden';
+            doc.body.appendChild(link);
+            link.click();
+            doc.body.removeChild(link);
+            console.log('Download triggered successfully');
+            Alert.alert('Export Successful', `Route downloaded as ${fileName}`);
+          } else {
+            // Fallback for environments without DOM
+            Alert.alert('Export', `GPX generated but download not supported in this environment.\nContent length: ${gpxContent.length} bytes`);
+          }
+        } catch (webError) {
+          console.error('Web export error:', webError);
+          // Fallback: try opening in new window
+          try {
+            const win = (global as any).window;
+            const newWindow = win?.open('', '_blank');
+            if (newWindow) {
+              newWindow.document.write(`<pre>${gpxContent}</pre>`);
+              newWindow.document.title = fileName;
+              Alert.alert('Export', 'GPX content opened in new tab. Right-click and Save As to download.');
+            } else {
+              Alert.alert('Export Failed', 'Could not open download. Check popup blocker settings.');
+            }
+          } catch (e) {
+            Alert.alert('Export Failed', 'Web export not supported');
+          }
+        }
+        return;
+      }
+
+      // Mobile platform - use file system and sharing
+      const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
       await FileSystem.writeAsStringAsync(fileUri, gpxContent);
 
-      Alert.alert('Export Successful', `Route exported to:\n${fileUri}`);
+      const sharingAvailable = await Sharing.isAvailableAsync();
+      if (sharingAvailable) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/gpx+xml',
+          dialogTitle: 'Save GPX Route File',
+          UTI: 'com.topografix.gpx',
+        });
+      } else {
+        Alert.alert('Export Successful', `Route exported to:\n${fileUri}`);
+      }
     } catch (error) {
-      Alert.alert('Export Failed', 'Could not export GPX file');
+      console.error('Export error:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      Alert.alert('Export Failed', `Could not export GPX file: ${errorMsg}`);
     }
   };
 
@@ -172,9 +255,10 @@ const RouteScreenEnhanced: React.FC = () => {
       name: waypointName,
       latitude: lat,
       longitude: lon,
+      coordinates: { latitude: lat, longitude: lon },
       order: editingWaypoint?.order || (currentRoute?.waypoints.length || 0) + 1,
       arrived: editingWaypoint?.arrived || false,
-      sailConfiguration: useEngine ? undefined : selectedConfig?.config,
+      sailConfiguration: useEngine ? undefined : selectedConfig?.label,
       useEngine,
     };
 
@@ -311,7 +395,7 @@ const RouteScreenEnhanced: React.FC = () => {
           <View style={styles.waypointInfo}>
             <Text style={styles.waypointName}>{item.name}</Text>
             <Text style={styles.waypointCoords}>
-              {item.latitude.toFixed(4)}°, {item.longitude.toFixed(4)}°
+              {formatToDDM({ latitude: item.latitude, longitude: item.longitude })}
             </Text>
           </View>
           {item.arrived && (

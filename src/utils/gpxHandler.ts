@@ -101,6 +101,11 @@ export function parseGPX(gpxContent: string): Promise<GPXParseResult> {
  * Generate GPX file content from route
  */
 export function generateGPX(route: Route): string {
+  // Ensure updatedAt is a proper Date object
+  const updatedAt = route.updatedAt instanceof Date
+    ? route.updatedAt
+    : new Date(route.updatedAt || Date.now());
+
   const gpxObject = {
     gpx: {
       $: {
@@ -114,20 +119,30 @@ export function generateGPX(route: Route): string {
       metadata: [
         {
           name: [route.name],
-          time: [route.updatedAt.toISOString()],
+          time: [updatedAt.toISOString()],
         },
       ],
       rte: [
         {
           name: [route.name],
-          rtept: route.waypoints.map((wp) => ({
-            $: {
-              lat: wp.latitude.toString(),
-              lon: wp.longitude.toString(),
-            },
-            name: [wp.name],
-            desc: [wp.arrived ? `Arrived: ${wp.arrivalTime?.toISOString()}` : 'Not visited'],
-          })),
+          rtept: route.waypoints.map((wp) => {
+            // Handle arrivalTime - ensure it's a Date if present
+            let arrivalTimeStr = 'Not visited';
+            if (wp.arrived && wp.arrivalTime) {
+              const arrivalTime = wp.arrivalTime instanceof Date
+                ? wp.arrivalTime
+                : new Date(wp.arrivalTime);
+              arrivalTimeStr = `Arrived: ${arrivalTime.toISOString()}`;
+            }
+            return {
+              $: {
+                lat: wp.latitude.toString(),
+                lon: wp.longitude.toString(),
+              },
+              name: [wp.name],
+              desc: [arrivalTimeStr],
+            };
+          }),
         },
       ],
     },

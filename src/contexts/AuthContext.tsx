@@ -25,6 +25,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
 
+// Demo mode - allows login without backend for testing
+const DEMO_MODE = true;
+const DEMO_USER = {
+  id: 'demo-user-001',
+  email: 'demo@sailing.ai',
+  name: 'Demo Sailor',
+};
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -53,6 +61,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const login = async (email: string, password: string) => {
     try {
+      // Demo mode - accept any credentials for testing
+      if (DEMO_MODE) {
+        const demoToken = 'demo-token-' + Date.now();
+        const demoUser = {
+          ...DEMO_USER,
+          email: email || DEMO_USER.email,
+          name: email.split('@')[0] || DEMO_USER.name,
+        };
+
+        await AsyncStorage.setItem('authToken', demoToken);
+        await AsyncStorage.setItem('user', JSON.stringify(demoUser));
+
+        setToken(demoToken);
+        setUser(demoUser);
+        return;
+      }
+
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: {
@@ -81,6 +106,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const register = async (name: string, email: string, password: string) => {
     try {
+      // Demo mode - accept any credentials for testing
+      if (DEMO_MODE) {
+        const demoToken = 'demo-token-' + Date.now();
+        const demoUser = {
+          id: 'demo-user-' + Date.now(),
+          email: email,
+          name: name,
+        };
+
+        await AsyncStorage.setItem('authToken', demoToken);
+        await AsyncStorage.setItem('user', JSON.stringify(demoUser));
+
+        setToken(demoToken);
+        setUser(demoUser);
+        return;
+      }
+
       const response = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
         headers: {

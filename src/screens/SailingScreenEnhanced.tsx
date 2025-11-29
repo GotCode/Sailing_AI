@@ -1,7 +1,7 @@
 // Enhanced Sailing Screen with Route Planning, Weather Fetch, and Professional UI
 // This is the redesigned version with all requested features
 
-import React, { useState, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import {
   View,
@@ -15,6 +15,7 @@ import {
   Modal,
   FlatList,
   Linking,
+  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
@@ -32,6 +33,7 @@ import { planRoute, fetchRouteCorridorWeather } from '../services/routePlanningS
 import SailConfigDisplay from '../components/SailConfigDisplay';
 import ErrorPanel from '../components/ErrorPanel';
 import SailingRose from '../components/SailingRose';
+import RouteMapView from '../components/RouteMapView';
 import { useAuth } from '../contexts/AuthContext';
 import { simulationService, SimulatedWeather, StormAlert } from '../services/simulationService';
 import { getWeatherMonitoringService } from '../services/weatherMonitoringService';
@@ -53,6 +55,7 @@ const SailingScreenEnhanced: React.FC = () => {
   const [destination, setDestination] = useState<GPSCoordinates>({ latitude: 0, longitude: 0 });
   const [startInput, setStartInput] = useState('');
   const [destInput, setDestInput] = useState('');
+  const [startDate, setStartDate] = useState<string>(new Date().toISOString().split('T')[0]); // YYYY-MM-DD
 
   // ===== Sailing Mode (Radio Buttons) =====
   const [sailingMode, setSailingMode] = useState<SailingMode>(SailingMode.MIXED);
@@ -90,9 +93,45 @@ const SailingScreenEnhanced: React.FC = () => {
 
   // ===== Simulation State =====
   const [simulationRunning, setSimulationRunning] = useState(false);
+  const [simulationCompleted, setSimulationCompleted] = useState(false);
   const [simulationHour, setSimulationHour] = useState(0);
   const [simulatedWeather, setSimulatedWeather] = useState<SimulatedWeather | null>(null);
   const [stormAlerts, setStormAlerts] = useState<StormAlert[]>([]);
+
+  // ===== Real GPS Tracking State =====
+  const [trackingRunning, setTrackingRunning] = useState(false);
+  const [trackingPosition, setTrackingPosition] = useState<GPSCoordinates | null>(null);
+  const trackingSubscriptionRef = useRef<any>(null);
+
+  // ===== Storm Reroute State =====
+  const [showRerouteDialog, setShowRerouteDialog] = useState(false);
+  const [pendingReroute, setPendingReroute] = useState<Route | null>(null);
+
+  // ===== Weather Alert Popup State =====
+  const [showWeatherAlert, setShowWeatherAlert] = useState(false);
+  const [currentWeatherAlert, setCurrentWeatherAlert] = useState<StormAlert | null>(null);
+  const weatherAlertTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ===== Auto-close weather alert after 30 seconds =====
+  useEffect(() => {
+    if (showWeatherAlert) {
+      // Clear any existing timer
+      if (weatherAlertTimerRef.current) {
+        clearTimeout(weatherAlertTimerRef.current);
+      }
+      // Set new 30-second timer
+      weatherAlertTimerRef.current = setTimeout(() => {
+        setShowWeatherAlert(false);
+        setCurrentWeatherAlert(null);
+      }, 30000);
+    }
+
+    return () => {
+      if (weatherAlertTimerRef.current) {
+        clearTimeout(weatherAlertTimerRef.current);
+      }
+    };
+  }, [showWeatherAlert]);
 
   // ===== Update navigation title with status message =====
   useLayoutEffect(() => {
@@ -177,6 +216,86 @@ const SailingScreenEnhanced: React.FC = () => {
     );
   };
 
+  // ===== Estimate Tide Based on Time (simplified lunar cycle) =====
+  const getTideEstimate = (date: Date): string => {
+    const hour = date.getHours();
+    const lunarDay = Math.floor((date.getTime() / (1000 * 60 * 60 * 24)) % 29.53);
+
+    // Simplified tidal pattern based on lunar day and hour
+    const tidePhase = ((lunarDay * 2 + hour / 6) % 4);
+
+    if (tidePhase < 1) return 'Rising → High';
+    if (tidePhase < 2) return 'High → Falling';
+    if (tidePhase < 3) return 'Falling → Low';
+    return 'Low → Rising';
+  };
+
+  // ===== Calculate Route Distance (Haversine) =====
+  const calculateRouteDistance = (start: GPSCoordinates, end: GPSCoordinates): number => {
+    const R = 3440.065; // Earth radius in nautical miles
+    const dLat = (end.latitude - start.latitude) * Math.PI / 180;
+    const dLon = (end.longitude - start.longitude) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(start.latitude * Math.PI / 180) * Math.cos(end.latitude * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  // ===== Calculate Suggested Start Time for Daylight Arrival =====
+  // Returns suggested departure time to arrive at destination within daylight hours (6 AM - 5 PM)
+  const calculateSuggestedStartTime = (): { time: string; arrivalTime: string } | null => {
+    if (!corridorWeather) return null;
+
+    const distance = calculateRouteDistance(corridorWeather.startPoint, corridorWeather.endPoint);
+
+    // Estimate boat speed based on average wind (simplified)
+    const avgWind = corridorWeather.averageWindSpeed;
+    let estimatedSpeed = 5; // default 5 knots
+    if (avgWind >= 10 && avgWind <= 20) estimatedSpeed = 6.5;
+    else if (avgWind > 20 && avgWind <= 30) estimatedSpeed = 7;
+    else if (avgWind < 10) estimatedSpeed = 4;
+    else estimatedSpeed = 5; // Strong winds, reduced speed
+
+    const voyageHours = distance / estimatedSpeed;
+
+    // Target arrival time: 5 PM (17:00)
+    const targetArrivalHour = 17;
+
+    // Calculate departure time to arrive at 5 PM
+    const now = new Date();
+    const departureDate = new Date(startDate || now.toISOString().split('T')[0]);
+
+    // Set target arrival to 5 PM on departure date
+    const arrivalDate = new Date(departureDate);
+    arrivalDate.setHours(targetArrivalHour, 0, 0, 0);
+
+    // Subtract voyage time to get departure time
+    const departureTime = new Date(arrivalDate.getTime() - voyageHours * 60 * 60 * 1000);
+
+    // Check if departure is before 6 AM (too early - may need to depart previous day or adjust)
+    const departureHour = departureTime.getHours();
+    if (departureHour < 6 && departureTime.getDate() === departureDate.getDate()) {
+      // Voyage too long for single day arrival, suggest earlier departure
+      return {
+        time: `${departureTime.toLocaleDateString()} ${departureHour}:00 (${voyageHours.toFixed(1)} hrs voyage)`,
+        arrivalTime: `${arrivalDate.toLocaleDateString()} ${targetArrivalHour}:00`,
+      };
+    }
+
+    // Format time as HH:MM
+    const formatHour = (h: number) => {
+      const isPM = h >= 12;
+      const displayHour = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+      return `${displayHour}:00 ${isPM ? 'PM' : 'AM'}`;
+    };
+
+    return {
+      time: formatHour(departureHour),
+      arrivalTime: formatHour(targetArrivalHour),
+    };
+  };
+
   const reverseRoute = () => {
     const tempInput = startInput;
     const tempPoint = startPoint;
@@ -196,100 +315,178 @@ const SailingScreenEnhanced: React.FC = () => {
     setStatusMessage('Route reversed');
   };
 
+  // ===== Stop Simulation =====
+  const stopSimulation = () => {
+    simulationService.stop();
+    setSimulationRunning(false);
+    setStormAlerts([]);
+    getWeatherMonitoringService().clearAlerts();
+    setStatusMessage('Simulation stopped');
+  };
+
+  // ===== Handle Storm Reroute Confirmation =====
+  const handleRerouteConfirm = (accepted: boolean) => {
+    setShowRerouteDialog(false);
+    if (accepted && pendingReroute) {
+      setPlannedRoute(pendingReroute);
+      setStatusMessage('Route updated to avoid storm');
+      Alert.alert(
+        'Route Updated',
+        'New waypoints have been added to navigate around the weather system.',
+        [{ text: 'View Route', onPress: () => setShowWaypointsModal(true) }]
+      );
+    } else {
+      setStatusMessage('Continuing on original route');
+      Alert.alert(
+        'Route Unchanged',
+        'Continuing on original route. Please monitor weather conditions carefully.',
+        [{ text: 'OK' }]
+      );
+    }
+    setPendingReroute(null);
+  };
+
   // ===== Simulation Mode =====
-  // Atlantic route: Bermuda to Nassau, Bahamas (~500 NM)
+  // Uses current route if available, otherwise creates default Bermuda to Nassau route
   const loadSimulationRoute = async () => {
     // Stop any existing simulation
     if (simulationRunning) {
-      simulationService.stop();
-      setSimulationRunning(false);
-      setStormAlerts([]);
-      setSimulatedWeather(null);
-      getWeatherMonitoringService().clearAlerts();
-      setStatusMessage('Simulation stopped');
+      stopSimulation();
       return;
     }
 
-    // Start: Bermuda (Hamilton)
-    const bermuda = { latitude: 32.2949, longitude: -64.7814 };
-    // Destination: Nassau, Bahamas
-    const nassau = { latitude: 25.0343, longitude: -77.3963 };
+    // Reset completed state when starting new simulation
+    setSimulationCompleted(false);
 
-    setStartInput(`${bermuda.latitude.toFixed(6)}, ${bermuda.longitude.toFixed(6)}`);
-    setStartPoint(bermuda);
+    let simulationRoute: Route;
 
-    setDestInput(`${nassau.latitude.toFixed(6)}, ${nassau.longitude.toFixed(6)}`);
-    setDestination(nassau);
+    // Check if we have a current route to use
+    if (plannedRoute && plannedRoute.waypoints.length >= 2) {
+      // Use existing planned route
+      simulationRoute = {
+        ...plannedRoute,
+        id: `sim-${Date.now()}`,
+        name: `${plannedRoute.name} (Simulation)`,
+      };
+    } else if (startPoint.latitude !== 0 && destination.latitude !== 0) {
+      // Use current start/destination inputs
+      const totalDist = calculateRouteDistance(startPoint, destination);
+      simulationRoute = {
+        id: `sim-${Date.now()}`,
+        name: 'Custom Route Simulation',
+        waypoints: [
+          {
+            id: 'wp-1',
+            name: 'Start',
+            latitude: startPoint.latitude,
+            longitude: startPoint.longitude,
+            coordinates: startPoint,
+            order: 1,
+            arrived: false,
+            sailConfiguration: 'Genoa + Full Main',
+            useEngine: false,
+            estimatedArrival: new Date(Date.now()),
+          },
+          {
+            id: 'wp-2',
+            name: 'Destination',
+            latitude: destination.latitude,
+            longitude: destination.longitude,
+            coordinates: destination,
+            order: 2,
+            arrived: false,
+            sailConfiguration: 'Genoa + Full Main',
+            useEngine: false,
+            estimatedArrival: new Date(Date.now() + 48 * 60 * 60 * 1000),
+          },
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    } else {
+      // Default: Bermuda to Nassau, Bahamas (~500 NM)
+      const bermuda = { latitude: 32.2949, longitude: -64.7814 };
+      const nassau = { latitude: 25.0343, longitude: -77.3963 };
+
+      setStartInput(`${bermuda.latitude.toFixed(6)}, ${bermuda.longitude.toFixed(6)}`);
+      setStartPoint(bermuda);
+      setDestInput(`${nassau.latitude.toFixed(6)}, ${nassau.longitude.toFixed(6)}`);
+      setDestination(nassau);
+
+      simulationRoute = {
+        id: `sim-${Date.now()}`,
+        name: 'Bermuda to Nassau Simulation',
+        waypoints: [
+          {
+            id: 'wp-1',
+            name: 'Bermuda (Start)',
+            latitude: bermuda.latitude,
+            longitude: bermuda.longitude,
+            coordinates: bermuda,
+            order: 1,
+            arrived: false,
+            sailConfiguration: 'Genoa + Full Main',
+            useEngine: false,
+            estimatedArrival: new Date(Date.now()),
+          },
+          {
+            id: 'wp-2',
+            name: 'Waypoint 1',
+            latitude: 30.5,
+            longitude: -68.0,
+            coordinates: { latitude: 30.5, longitude: -68.0 },
+            order: 2,
+            arrived: false,
+            sailConfiguration: 'Genoa + Full Main',
+            useEngine: false,
+            estimatedArrival: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+          {
+            id: 'wp-3',
+            name: 'Waypoint 2',
+            latitude: 28.5,
+            longitude: -71.0,
+            coordinates: { latitude: 28.5, longitude: -71.0 },
+            order: 3,
+            arrived: false,
+            sailConfiguration: 'Genoa + 1st Reef',
+            useEngine: false,
+            estimatedArrival: new Date(Date.now() + 48 * 60 * 60 * 1000),
+          },
+          {
+            id: 'wp-4',
+            name: 'Waypoint 3',
+            latitude: 26.5,
+            longitude: -74.0,
+            coordinates: { latitude: 26.5, longitude: -74.0 },
+            order: 4,
+            arrived: false,
+            sailConfiguration: 'Genoa + Full Main',
+            useEngine: false,
+            estimatedArrival: new Date(Date.now() + 72 * 60 * 60 * 1000),
+          },
+          {
+            id: 'wp-5',
+            name: 'Nassau (End)',
+            latitude: nassau.latitude,
+            longitude: nassau.longitude,
+            coordinates: nassau,
+            order: 5,
+            arrived: false,
+            sailConfiguration: 'Genoa + Full Main',
+            useEngine: false,
+            estimatedArrival: new Date(Date.now() + 96 * 60 * 60 * 1000),
+          },
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }
 
     // Set realistic wind conditions
     setWindSpeed('15');
     setTrueWindAngle('120');
     setSailingMode(SailingMode.MIXED);
-
-    // Create initial simulation route
-    const simulationRoute: Route = {
-      id: `sim-${Date.now()}`,
-      name: 'Bermuda to Nassau Simulation',
-      waypoints: [
-        {
-          id: 'wp-1',
-          name: 'Bermuda (Start)',
-          latitude: bermuda.latitude,
-          longitude: bermuda.longitude,
-          coordinates: bermuda,
-          arrived: false,
-          sailConfiguration: 'Genoa + Full Main',
-          useEngine: false,
-          estimatedArrival: new Date(Date.now() + 0).toISOString(),
-        },
-        {
-          id: 'wp-2',
-          name: 'Waypoint 1',
-          latitude: 30.5,
-          longitude: -68.0,
-          coordinates: { latitude: 30.5, longitude: -68.0 },
-          arrived: false,
-          sailConfiguration: 'Genoa + Full Main',
-          useEngine: false,
-          estimatedArrival: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        },
-        {
-          id: 'wp-3',
-          name: 'Waypoint 2',
-          latitude: 28.5,
-          longitude: -71.0,
-          coordinates: { latitude: 28.5, longitude: -71.0 },
-          arrived: false,
-          sailConfiguration: 'Genoa + 1st Reef',
-          useEngine: false,
-          estimatedArrival: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-        },
-        {
-          id: 'wp-4',
-          name: 'Waypoint 3',
-          latitude: 26.5,
-          longitude: -74.0,
-          coordinates: { latitude: 26.5, longitude: -74.0 },
-          arrived: false,
-          sailConfiguration: 'Genoa + Full Main',
-          useEngine: false,
-          estimatedArrival: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
-        },
-        {
-          id: 'wp-5',
-          name: 'Nassau (End)',
-          latitude: nassau.latitude,
-          longitude: nassau.longitude,
-          coordinates: nassau,
-          arrived: false,
-          sailConfiguration: 'Genoa + Full Main',
-          useEngine: false,
-          estimatedArrival: new Date(Date.now() + 96 * 60 * 60 * 1000).toISOString(),
-        },
-      ],
-      createdAt: new Date().toISOString(),
-      totalDistance: 500,
-    };
 
     setPlannedRoute(simulationRoute);
 
@@ -304,6 +501,16 @@ const SailingScreenEnhanced: React.FC = () => {
         const day = Math.floor(weather.hour / 24) + 1;
         const hourOfDay = weather.hour % 24;
         setStatusMessage(`Simulation: Day ${day}, ${hourOfDay}:00 - Wind ${weather.windSpeed} kts, Waves ${weather.waveHeight}m`);
+
+        // Check if simulation is complete (boat reached last waypoint)
+        if (weather.currentWaypointIndex !== undefined &&
+            weather.currentWaypointIndex >= simulationRoute.waypoints.length - 1) {
+          // Simulation complete - stop and wait for user to restart
+          simulationService.stop();
+          setSimulationRunning(false);
+          setSimulationCompleted(true);
+          setStatusMessage('Simulation complete - Arrived at destination');
+        }
       },
       onStormAlert: (alert: StormAlert) => {
         setStormAlerts(prev => [...prev, alert]);
@@ -312,28 +519,14 @@ const SailingScreenEnhanced: React.FC = () => {
         const monitoringService = getWeatherMonitoringService();
         monitoringService.addSimulatedAlert(alert);
 
-        // Show alert to user
-        Alert.alert(
-          `Storm Alert: ${alert.severity.toUpperCase()}`,
-          `${alert.message}\n\nLocation: ${alert.location.latitude.toFixed(2)}°N, ${Math.abs(alert.location.longitude).toFixed(2)}°W`,
-          [{ text: 'Acknowledge', style: 'default' }]
-        );
+        // Show weather alert popup with GPS location and 30-second auto-close
+        setCurrentWeatherAlert(alert);
+        setShowWeatherAlert(true);
       },
       onRouteDeviation: (newRoute: Route) => {
-        setPlannedRoute(newRoute);
-
-        // Show route deviation notification
-        Alert.alert(
-          'Route Deviation Required',
-          'A storm system has been detected on your planned route. The route has been automatically adjusted to avoid the storm.\n\nNew waypoints have been added to navigate around the weather system.',
-          [
-            {
-              text: 'View New Route',
-              onPress: () => setShowWaypointsModal(true)
-            },
-            { text: 'OK', style: 'default' }
-          ]
-        );
+        // Store pending reroute and show Y/N dialog
+        setPendingReroute(newRoute);
+        setShowRerouteDialog(true);
       },
     });
 
@@ -350,6 +543,63 @@ const SailingScreenEnhanced: React.FC = () => {
       'Watch the status bar for weather updates and alerts.',
       [{ text: 'OK', style: 'default' }]
     );
+  };
+
+  // ===== Start Real GPS Tracking =====
+  const startRealTracking = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required for real GPS tracking.');
+        return;
+      }
+
+      setTrackingRunning(true);
+      setStatusMessage('Real GPS Tracking started');
+
+      // Start watching position
+      trackingSubscriptionRef.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 5000, // Update every 5 seconds
+          distanceInterval: 10, // Or when moved 10 meters
+        },
+        (location) => {
+          const newPosition: GPSCoordinates = {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          };
+          setTrackingPosition(newPosition);
+          setCurrentPosition(newPosition);
+          setStatusMessage(
+            `Tracking: ${newPosition.latitude.toFixed(4)}°N, ${Math.abs(newPosition.longitude).toFixed(4)}°W`
+          );
+        }
+      );
+
+      Alert.alert(
+        'Real GPS Tracking Started',
+        'Your position will be tracked and displayed on the route map.\n\n' +
+        '• Updates every 5 seconds\n' +
+        '• Requires GPS/Location enabled\n' +
+        '• Battery usage may increase',
+        [{ text: 'OK', style: 'default' }]
+      );
+    } catch (error: any) {
+      Alert.alert('Tracking Error', error.message || 'Could not start GPS tracking');
+      setTrackingRunning(false);
+    }
+  };
+
+  // ===== Stop Real GPS Tracking =====
+  const stopRealTracking = () => {
+    if (trackingSubscriptionRef.current) {
+      trackingSubscriptionRef.current.remove();
+      trackingSubscriptionRef.current = null;
+    }
+    setTrackingRunning(false);
+    setTrackingPosition(null);
+    setStatusMessage('GPS Tracking stopped');
   };
 
   // ===== Show Coordinate Format Help =====
@@ -442,6 +692,20 @@ const SailingScreenEnhanced: React.FC = () => {
 
   // ===== Fetch Weather for Route Corridor =====
   const handleFetchWeather = async () => {
+    // Check for Windy API key first (stored as 'windy_api_key' by SettingsScreen)
+    const windyApiKey = await AsyncStorage.getItem('windy_api_key');
+    if (!windyApiKey || windyApiKey === 'YOUR_WINDY_API_KEY') {
+      Alert.alert(
+        'Windy API Key Required',
+        'Please configure your Windy.com API key in Settings to fetch weather data.\n\nGo to Settings > Windy API Key to add your key.',
+        [
+          { text: 'OK', style: 'default' },
+        ]
+      );
+      setStatusMessage('Windy API key not configured');
+      return;
+    }
+
     setStatusMessage('Parsing locations...');
 
     // Parse start location
@@ -542,6 +806,8 @@ const SailingScreenEnhanced: React.FC = () => {
       };
 
       const route = await planRoute(config);
+      // Add start date to the route
+      route.startDate = new Date(startDate);
       setPlannedRoute(route);
       setShowWaypointsModal(true);
       setStatusMessage(`Route planned: ${route.waypoints.length} waypoints`);
@@ -625,7 +891,7 @@ const SailingScreenEnhanced: React.FC = () => {
           </View>
           <TextInput
             style={styles.input}
-            placeholder="DD, DDM, DMS, Plus Code, or name (tap ? for help)"
+            placeholder="e.g. 25.7617, -80.1918 or 25°45.7'N, 80°11.5'W"
             value={startInput}
             onChangeText={setStartInput}
           />
@@ -646,7 +912,7 @@ const SailingScreenEnhanced: React.FC = () => {
           </View>
           <TextInput
             style={styles.input}
-            placeholder="DD, DDM, DMS, Plus Code, or name (tap ? for help)"
+            placeholder="e.g. 32.2949, -64.7814 or 32°17.7'N, 64°46.9'W"
             value={destInput}
             onChangeText={setDestInput}
           />
@@ -655,6 +921,20 @@ const SailingScreenEnhanced: React.FC = () => {
               Parsed: {destination.latitude.toFixed(4)}°, {destination.longitude.toFixed(4)}°
             </Text>
           )}
+        </View>
+
+        {/* Start Date */}
+        <View style={styles.subsection}>
+          <Text style={styles.label}>Start Date</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="YYYY-MM-DD"
+            value={startDate}
+            onChangeText={setStartDate}
+          />
+          <Text style={styles.helpText}>
+            Planned departure date for route planning and weather forecasts
+          </Text>
         </View>
 
         {/* Reverse Route Button */}
@@ -761,41 +1041,61 @@ const SailingScreenEnhanced: React.FC = () => {
 
       {/* ===== SECTION 4: ACTION BUTTONS ===== */}
       <View style={styles.section}>
-        <TouchableOpacity
-          style={[styles.button, styles.weatherButton, loadingWeather && styles.buttonDisabled]}
-          onPress={handleFetchWeather}
-          disabled={loadingWeather}
-        >
-          {loadingWeather ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <>
-              <Text style={styles.buttonIcon}>🌤️</Text>
-              <Text style={styles.buttonText}>Fetch Weather Data</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        <View style={styles.actionButtonRow}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.weatherButton, loadingWeather && styles.buttonDisabled]}
+            onPress={handleFetchWeather}
+            disabled={loadingWeather}
+          >
+            {loadingWeather ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Text style={styles.buttonIcon}>🌤️</Text>
+                <Text style={styles.actionButtonText}>Fetch Weather</Text>
+              </>
+            )}
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.button, styles.planButton, loadingRoute && styles.buttonDisabled]}
-          onPress={handlePlanRoute}
-          disabled={loadingRoute}
-        >
-          {loadingRoute ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <>
-              <Text style={styles.buttonIcon}>🗺️</Text>
-              <Text style={styles.buttonText}>Plan Route Automatically</Text>
-            </>
-          )}
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.planButton,
+              (loadingRoute || !corridorWeather) && styles.buttonDisabled,
+            ]}
+            onPress={handlePlanRoute}
+            disabled={loadingRoute || !corridorWeather}
+          >
+            {loadingRoute ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Text style={styles.buttonIcon}>🗺️</Text>
+                <Text style={styles.actionButtonText}>
+                  {corridorWeather ? 'Auto Plan Route' : 'Fetch Weather First'}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ===== SECTION 5: WEATHER CORRIDOR DISPLAY ===== */}
       {corridorWeather && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>🌊 Route Weather Summary</Text>
+
+          {/* Area Coverage Info */}
+          <View style={styles.weatherAreaInfo}>
+            <Text style={styles.weatherAreaText}>
+              Coverage Area: {calculateRouteDistance(corridorWeather.startPoint, corridorWeather.endPoint).toFixed(0)} NM route
+            </Text>
+            <Text style={styles.weatherAreaText}>
+              Fetched: {new Date().toLocaleTimeString()}
+            </Text>
+          </View>
+
+          {/* Weather Statistics */}
           <View style={styles.weatherStats}>
             <View style={styles.weatherStat}>
               <Text style={styles.weatherStatLabel}>Avg Wind</Text>
@@ -814,8 +1114,67 @@ const SailingScreenEnhanced: React.FC = () => {
               <Text style={styles.weatherStatValue}>{corridorWeather.maxWaveHeight.toFixed(1)} m</Text>
             </View>
           </View>
+
+          {/* Suggested Start Time */}
+          {calculateSuggestedStartTime() && (
+            <View style={styles.suggestedStartBox}>
+              <Text style={styles.suggestedStartTitle}>Suggested Departure Time</Text>
+              <View style={styles.suggestedStartContent}>
+                <View style={styles.suggestedStartItem}>
+                  <Text style={styles.suggestedStartIcon}>🚀</Text>
+                  <Text style={styles.suggestedStartLabel}>Depart:</Text>
+                  <Text style={styles.suggestedStartValue}>{calculateSuggestedStartTime()?.time}</Text>
+                </View>
+                <View style={styles.suggestedStartItem}>
+                  <Text style={styles.suggestedStartIcon}>🏁</Text>
+                  <Text style={styles.suggestedStartLabel}>Arrive:</Text>
+                  <Text style={styles.suggestedStartValue}>{calculateSuggestedStartTime()?.arrivalTime}</Text>
+                </View>
+              </View>
+              <Text style={styles.suggestedStartHint}>
+                Based on route distance and wind conditions for daylight arrival
+              </Text>
+            </View>
+          )}
+
+          {/* Weather History / Map Display */}
+          <View style={styles.weatherMapContainer}>
+            <Text style={styles.weatherMapTitle}>Weather Along Route</Text>
+            <View style={styles.weatherMapGrid}>
+              {corridorWeather.weatherPoints.map((point, index) => {
+                const windColor = point.forecast.windSpeed >= 25 ? '#F44336' :
+                                  point.forecast.windSpeed >= 15 ? '#FF9800' :
+                                  point.forecast.windSpeed >= 8 ? '#4CAF50' : '#2196F3';
+                return (
+                  <View key={index} style={styles.weatherMapPoint}>
+                    <View style={[styles.weatherMapDot, { backgroundColor: windColor }]} />
+                    <Text style={styles.weatherMapLabel}>{point.forecast.windSpeed.toFixed(0)}</Text>
+                  </View>
+                );
+              })}
+            </View>
+            <View style={styles.weatherMapLegend}>
+              <View style={styles.legendRow}>
+                <View style={[styles.legendDot, { backgroundColor: '#2196F3' }]} />
+                <Text style={styles.legendLabel}>Light (&lt;8)</Text>
+              </View>
+              <View style={styles.legendRow}>
+                <View style={[styles.legendDot, { backgroundColor: '#4CAF50' }]} />
+                <Text style={styles.legendLabel}>Moderate (8-15)</Text>
+              </View>
+              <View style={styles.legendRow}>
+                <View style={[styles.legendDot, { backgroundColor: '#FF9800' }]} />
+                <Text style={styles.legendLabel}>Strong (15-25)</Text>
+              </View>
+              <View style={styles.legendRow}>
+                <View style={[styles.legendDot, { backgroundColor: '#F44336' }]} />
+                <Text style={styles.legendLabel}>Heavy (&gt;25)</Text>
+              </View>
+            </View>
+          </View>
+
           <Text style={styles.helpText}>
-            Weather data collected from {corridorWeather.weatherPoints.length} points along the route
+            {corridorWeather.weatherPoints.length} weather points sampled along route corridor
           </Text>
         </View>
       )}
@@ -859,17 +1218,178 @@ const SailingScreenEnhanced: React.FC = () => {
 
         {/* Sailing Rose - B&G Style Wind Display */}
         <SailingRose
-          trueWindAngle={parseFloat(trueWindAngle) || 90}
-          windSpeed={parseFloat(windSpeed) || 10}
+          trueWindAngle={
+            simulationRunning && simulatedWeather?.windDirection !== undefined
+              ? Math.abs((simulatedWeather.windDirection - 90) % 180) // Calculate TWA from wind direction
+              : parseFloat(trueWindAngle) || 90
+          }
+          windSpeed={
+            simulationRunning && simulatedWeather?.windSpeed !== undefined
+              ? simulatedWeather.windSpeed
+              : parseFloat(windSpeed) || 10
+          }
           sailRecommendation={sailRecommendation}
+          windDirection={simulatedWeather?.windDirection}
+          waveHeight={simulatedWeather?.waveHeight}
+          conditions={simulatedWeather?.conditions}
+          isSimulation={simulationRunning}
         />
       </View>
+
+      {/* ===== SECTION 7: ROUTE MAP VIEW ===== */}
+      {plannedRoute && plannedRoute.waypoints.length >= 2 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Route Map</Text>
+          <RouteMapView
+            waypoints={plannedRoute.waypoints}
+            routeName={plannedRoute.name}
+            currentWaypointIndex={simulatedWeather?.currentWaypointIndex || 0}
+            simulatedPosition={trackingRunning ? trackingPosition || undefined : simulatedWeather?.boatPosition}
+            stormLocations={[
+              // Add storm location if present
+              ...(simulatedWeather?.hasStorm && simulatedWeather?.stormLocation
+                ? [{ lat: simulatedWeather.stormLocation.latitude, lon: simulatedWeather.stormLocation.longitude, type: 'storm' as const }]
+                : []),
+              // Add squall locations
+              ...(simulatedWeather?.squalls?.map(sq => ({
+                lat: sq.location.latitude,
+                lon: sq.location.longitude,
+                type: 'squall' as const,
+              })) || []),
+            ]}
+            trackingRunning={trackingRunning}
+            simulationRunning={simulationRunning}
+            simulationCompleted={simulationCompleted}
+            simulationHour={simulationHour}
+            windDirection={simulatedWeather?.windDirection || 0}
+            windSpeed={simulatedWeather?.windSpeed || 0}
+            onStartTracking={startRealTracking}
+            onStopTracking={stopRealTracking}
+            onStartSimulation={loadSimulationRoute}
+            onStopSimulation={stopSimulation}
+          />
+        </View>
+      )}
 
       {/* ===== ERROR PANEL ===== */}
       {error && <ErrorPanel error={error} onDismiss={() => setError(null)} />}
 
+      {/* ===== STORM REROUTE CONFIRMATION MODAL ===== */}
+      <Modal
+        visible={showRerouteDialog}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => handleRerouteConfirm(false)}
+      >
+        <View style={styles.rerouteModalOverlay}>
+          <View style={styles.rerouteModalContent}>
+            <Text style={styles.rerouteModalIcon}>⚠️</Text>
+            <Text style={styles.rerouteModalTitle}>Storm Detected!</Text>
+            <Text style={styles.rerouteModalMessage}>
+              A storm system has been detected on your planned route.{'\n\n'}
+              Would you like to add a new waypoint to navigate around the storm and continue on a safer route?
+            </Text>
+            <View style={styles.rerouteModalButtons}>
+              <TouchableOpacity
+                style={[styles.rerouteModalButton, styles.rerouteModalButtonNo]}
+                onPress={() => handleRerouteConfirm(false)}
+              >
+                <Text style={styles.rerouteModalButtonText}>No, Continue</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.rerouteModalButton, styles.rerouteModalButtonYes]}
+                onPress={() => handleRerouteConfirm(true)}
+              >
+                <Text style={styles.rerouteModalButtonText}>Yes, Reroute</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ===== WEATHER ALERT POPUP MODAL ===== */}
+      <Modal
+        visible={showWeatherAlert}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowWeatherAlert(false);
+          setCurrentWeatherAlert(null);
+        }}
+      >
+        <View style={styles.weatherAlertOverlay}>
+          <View style={styles.weatherAlertContent}>
+            {/* Close Button */}
+            <TouchableOpacity
+              style={styles.weatherAlertCloseButton}
+              onPress={() => {
+                setShowWeatherAlert(false);
+                setCurrentWeatherAlert(null);
+              }}
+            >
+              <Text style={styles.weatherAlertCloseText}>✕</Text>
+            </TouchableOpacity>
+
+            {/* Alert Icon based on severity */}
+            <Text style={styles.weatherAlertIcon}>
+              {currentWeatherAlert?.severity === 'warning' ? '🌪️' :
+               currentWeatherAlert?.severity === 'watch' ? '⚠️' : 'ℹ️'}
+            </Text>
+
+            {/* Alert Title */}
+            <Text style={styles.weatherAlertTitle}>
+              Weather Alert: {currentWeatherAlert?.severity?.toUpperCase()}
+            </Text>
+
+            {/* Alert Type */}
+            <Text style={styles.weatherAlertType}>
+              {currentWeatherAlert?.type?.toUpperCase()}
+            </Text>
+
+            {/* Alert Message */}
+            <Text style={styles.weatherAlertMessage}>
+              {currentWeatherAlert?.message}
+            </Text>
+
+            {/* GPS Location */}
+            <View style={styles.weatherAlertLocation}>
+              <Text style={styles.weatherAlertLocationIcon}>📍</Text>
+              <Text style={styles.weatherAlertLocationText}>
+                GPS Location: {currentWeatherAlert?.location?.latitude?.toFixed(4)}°N, {Math.abs(currentWeatherAlert?.location?.longitude || 0).toFixed(4)}°W
+              </Text>
+            </View>
+
+            {/* Current Position (if available) */}
+            {currentPosition.latitude !== 0 && (
+              <View style={styles.weatherAlertLocation}>
+                <Text style={styles.weatherAlertLocationIcon}>🚤</Text>
+                <Text style={styles.weatherAlertLocationText}>
+                  Your Position: {currentPosition.latitude.toFixed(4)}°N, {Math.abs(currentPosition.longitude).toFixed(4)}°W
+                </Text>
+              </View>
+            )}
+
+            {/* Auto-close notice */}
+            <Text style={styles.weatherAlertAutoClose}>
+              This alert will auto-close in 30 seconds
+            </Text>
+
+            {/* Acknowledge Button */}
+            <TouchableOpacity
+              style={styles.weatherAlertAckButton}
+              onPress={() => {
+                setShowWeatherAlert(false);
+                setCurrentWeatherAlert(null);
+              }}
+            >
+              <Text style={styles.weatherAlertAckButtonText}>Acknowledge</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Bottom spacing */}
-      <View style={{ height: 20 }} />
+      <View style={{ height: 40 }} />
 
       {/* ===== WAYPOINTS MODAL ===== */}
       <Modal
@@ -903,6 +1423,41 @@ const SailingScreenEnhanced: React.FC = () => {
                     <Text style={styles.waypointCoords}>
                       {item.coordinates.latitude.toFixed(4)}°, {item.coordinates.longitude.toFixed(4)}°
                     </Text>
+
+                    {/* Wind and Weather Info */}
+                    {item.weatherForecast && (
+                      <View style={styles.waypointWeather}>
+                        <View style={styles.waypointWeatherRow}>
+                          <Text style={styles.waypointWeatherIcon}>💨</Text>
+                          <Text style={styles.waypointWeatherText}>
+                            Wind: {item.weatherForecast.windSpeed.toFixed(0)} kts @ {item.weatherForecast.windDirection}°
+                          </Text>
+                        </View>
+                        <View style={styles.waypointWeatherRow}>
+                          <Text style={styles.waypointWeatherIcon}>🌊</Text>
+                          <Text style={styles.waypointWeatherText}>
+                            Waves: {item.weatherForecast.waveHeight.toFixed(1)} m
+                          </Text>
+                        </View>
+                        <View style={styles.waypointWeatherRow}>
+                          <Text style={styles.waypointWeatherIcon}>🌡️</Text>
+                          <Text style={styles.waypointWeatherText}>
+                            Gusts: {item.weatherForecast.gustSpeed.toFixed(0)} kts
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Tide Info (estimated based on time) */}
+                    {item.estimatedArrival && (
+                      <View style={styles.waypointTide}>
+                        <Text style={styles.waypointWeatherIcon}>🌙</Text>
+                        <Text style={styles.waypointTideText}>
+                          Tide: {getTideEstimate(new Date(item.estimatedArrival))}
+                        </Text>
+                      </View>
+                    )}
+
                     <Text style={styles.waypointSail}>
                       Sail: {getSailConfigString(item)}
                     </Text>
@@ -965,7 +1520,6 @@ const SailingScreenEnhanced: React.FC = () => {
                     <Text style={styles.savedRouteName}>{item.name}</Text>
                     <Text style={styles.savedRouteInfo}>
                       {item.waypoints.length} waypoints
-                      {item.totalDistance ? ` | ${item.totalDistance.toFixed(0)} NM` : ''}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -1271,6 +1825,91 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  actionButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  actionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  weatherAreaInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  weatherAreaText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  weatherMapContainer: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+  },
+  weatherMapTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  weatherMapGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  weatherMapPoint: {
+    alignItems: 'center',
+    width: 40,
+  },
+  weatherMapDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginBottom: 4,
+  },
+  weatherMapLabel: {
+    fontSize: 10,
+    color: '#666',
+  },
+  weatherMapLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#DDD',
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  legendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 4,
+  },
+  legendLabel: {
+    fontSize: 10,
+    color: '#666',
+  },
   weatherStats: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1294,6 +1933,49 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#0066CC',
+  },
+  suggestedStartBox: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+  },
+  suggestedStartTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#E65100',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  suggestedStartContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 8,
+  },
+  suggestedStartItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  suggestedStartIcon: {
+    fontSize: 16,
+  },
+  suggestedStartLabel: {
+    fontSize: 13,
+    color: '#666',
+  },
+  suggestedStartValue: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#E65100',
+  },
+  suggestedStartHint: {
+    fontSize: 11,
+    color: '#999',
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   recommendationBox: {
     marginTop: 16,
@@ -1376,6 +2058,36 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#999',
   },
+  waypointWeather: {
+    backgroundColor: '#F0F7FF',
+    padding: 8,
+    borderRadius: 6,
+    marginVertical: 6,
+  },
+  waypointWeatherRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  waypointWeatherIcon: {
+    fontSize: 14,
+    marginRight: 6,
+    width: 20,
+  },
+  waypointWeatherText: {
+    fontSize: 12,
+    color: '#333',
+  },
+  waypointTide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  waypointTideText: {
+    fontSize: 12,
+    color: '#00796B',
+    fontWeight: '500',
+  },
   modalActions: {
     flexDirection: 'row',
     padding: 16,
@@ -1425,6 +2137,189 @@ const styles = StyleSheet.create({
   deleteRouteButtonText: {
     color: '#FFFFFF',
     fontSize: 12,
+    fontWeight: 'bold',
+  },
+  // Map styles
+  mapContainer: {
+    height: 300,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginTop: 12,
+  },
+  map: {
+    flex: 1,
+  },
+  mapHint: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  // Reroute Modal styles
+  rerouteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  rerouteModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  rerouteModalIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  rerouteModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#D32F2F',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  rerouteModalMessage: {
+    fontSize: 14,
+    color: '#333',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  rerouteModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  rerouteModalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  rerouteModalButtonNo: {
+    backgroundColor: '#9E9E9E',
+  },
+  rerouteModalButtonYes: {
+    backgroundColor: '#4CAF50',
+  },
+  rerouteModalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  // Weather Alert Popup styles
+  weatherAlertOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  weatherAlertContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    maxWidth: 360,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    position: 'relative',
+  },
+  weatherAlertCloseButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F5F5F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  weatherAlertCloseText: {
+    fontSize: 18,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  weatherAlertIcon: {
+    fontSize: 56,
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  weatherAlertTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#D32F2F',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  weatherAlertType: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FF5722',
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: '#FFF3E0',
+    borderRadius: 12,
+  },
+  weatherAlertMessage: {
+    fontSize: 14,
+    color: '#333',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  weatherAlertLocation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 8,
+    width: '100%',
+  },
+  weatherAlertLocationIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  weatherAlertLocationText: {
+    fontSize: 12,
+    color: '#1565C0',
+    fontWeight: '500',
+  },
+  weatherAlertAutoClose: {
+    fontSize: 11,
+    color: '#999',
+    fontStyle: 'italic',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  weatherAlertAckButton: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+    minWidth: 150,
+    alignItems: 'center',
+  },
+  weatherAlertAckButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: 'bold',
   },
 });

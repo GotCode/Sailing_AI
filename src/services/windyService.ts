@@ -4,22 +4,18 @@ import axios from 'axios';
 import { WindForecast, GPSCoordinates } from '../types/sailing';
 
 /**
- * Note: Windy.com API requires an API key
- * Users need to register at https://api.windy.com/api-key
- * and add their key to the app configuration
+ * Windy.com Point Forecast API
+ * API Key is included in the request body
+ * Register at https://api.windy.com/keys
  */
 
 const WINDY_API_BASE_URL = 'https://api.windy.com/api';
 
-export interface WindyConfig {
-  apiKey: string;
-}
-
 export class WindyService {
   private apiKey: string;
 
-  constructor(config: WindyConfig) {
-    this.apiKey = config.apiKey;
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
   }
 
   /**
@@ -33,23 +29,27 @@ export class WindyService {
       if (!this.apiKey || this.apiKey === 'YOUR_WINDY_API_KEY') {
         return {
           forecasts: [],
-          error: 'Windy.com API key not configured. Please add your API key in settings.',
+          error: 'Windy.com API key not configured. Please add your API Key in Settings.',
         };
       }
 
-      // Windy Point Forecast API
+      // Windy Point Forecast API - key goes in request body
+      // Use gfs model for wind data (waves requires gfsWave model)
       const response = await axios.post(
         `${WINDY_API_BASE_URL}/point-forecast/v2`,
         {
           lat: coordinates.latitude,
           lon: coordinates.longitude,
           model: 'gfs',
-          parameters: ['wind', 'gust', 'waves'],
+          parameters: ['wind', 'windGust'],
           levels: ['surface'],
           key: this.apiKey,
         },
         {
-          timeout: 10000,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 15000,
         }
       );
 
@@ -61,15 +61,29 @@ export class WindyService {
           error: 'Invalid response from Windy.com API',
         };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching wind forecast:', error);
+      console.error('Error response data:', error.response?.data);
+      console.error('Error response status:', error.response?.status);
       let errorMessage = 'Failed to fetch wind forecast from Windy.com';
 
       if (error.response) {
         // Server responded with error
-        errorMessage = `Windy.com API error: ${error.response.status} - ${
-          error.response.data?.error || error.response.statusText
-        }`;
+        const status = error.response.status;
+        const responseData = error.response.data;
+        const errorData = responseData?.error || responseData?.message || responseData || error.response.statusText;
+
+        console.error('Full error response:', JSON.stringify(responseData));
+
+        if (status === 401 || status === 403) {
+          errorMessage = `Authentication failed (${status}): ${typeof errorData === 'object' ? JSON.stringify(errorData) : errorData}`;
+        } else if (status === 429) {
+          errorMessage = 'API rate limit exceeded. Try again later.';
+        } else if (status === 400) {
+          errorMessage = `Bad request (${status}): ${typeof errorData === 'object' ? JSON.stringify(errorData) : errorData}`;
+        } else {
+          errorMessage = `Windy.com API error (${status}): ${typeof errorData === 'object' ? JSON.stringify(errorData) : errorData}`;
+        }
       } else if (error.request) {
         // No response received
         errorMessage = 'No response from Windy.com API. Check your internet connection.';
@@ -94,8 +108,7 @@ export class WindyService {
       const timestamps = data.ts || [];
       const windU = data['wind_u-surface'] || [];
       const windV = data['wind_v-surface'] || [];
-      const gust = data['gust-surface'] || [];
-      const waveHeight = data['waves-surface'] || [];
+      const gust = data['windGust-surface'] || [];
 
       for (let i = 0; i < timestamps.length; i++) {
         const u = windU[i] || 0;
@@ -106,21 +119,20 @@ export class WindyService {
         const windSpeedKnots = windSpeedMS * 1.94384;
 
         // Calculate wind direction from u and v components
-        let windDirection = (Math.atan2(u, v) * 180) / Math.PI;
+        // Wind direction is where the wind comes FROM
+        let windDirection = (Math.atan2(-u, -v) * 180) / Math.PI;
         if (windDirection < 0) windDirection += 360;
 
         // Gust speed (m/s to knots)
         const gustSpeedKnots = (gust[i] || windSpeedMS) * 1.94384;
 
-        // Wave height (meters)
-        const waveHeightMeters = waveHeight[i] || 0;
-
         forecasts.push({
           timestamp: new Date(timestamps[i]),
           windSpeed: Math.round(windSpeedKnots * 10) / 10,
           windDirection: Math.round(windDirection),
+          direction: Math.round(windDirection),
           gustSpeed: Math.round(gustSpeedKnots * 10) / 10,
-          waveHeight: Math.round(waveHeightMeters * 10) / 10,
+          waveHeight: 0, // Wave data requires separate gfsWave model call
         });
       }
 
@@ -156,12 +168,34 @@ export class WindyService {
 
 // Singleton instance
 let windyServiceInstance: WindyService | null = null;
+let storedApiKey: string = '';
 
-export function getWindyService(apiKey?: string): WindyService {
-  if (!windyServiceInstance || apiKey) {
-    windyServiceInstance = new WindyService({
-      apiKey: apiKey || 'YOUR_WINDY_API_KEY',
-    });
+/**
+ * Initialize the Windy service with API Key
+ * Call this when loading saved credentials from AsyncStorage or when user enters new ones
+ */
+export function initializeWindyService(apiKey: string): void {
+  storedApiKey = apiKey || '';
+  windyServiceInstance = new WindyService(storedApiKey);
+}
+
+export function getWindyService(): WindyService {
+  if (!windyServiceInstance) {
+    windyServiceInstance = new WindyService(storedApiKey);
   }
   return windyServiceInstance;
+}
+
+/**
+ * Check if valid API key is configured
+ */
+export function isWindyApiKeyConfigured(): boolean {
+  return storedApiKey.length > 10;
+}
+
+/**
+ * Get current API key (for display purposes)
+ */
+export function getWindyApiKey(): string {
+  return storedApiKey;
 }

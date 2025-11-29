@@ -1,16 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar, ActivityIndicator, View, StyleSheet } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import SailingScreen from './src/screens/SailingScreenEnhanced';
 import RouteScreen from './src/screens/RouteScreenEnhanced';
 import PolarScreen from './src/screens/PolarScreen';
 import WeatherMonitorScreen from './src/screens/WeatherMonitorScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
+import { initializeWindyService } from './src/services/windyService';
+
+const WINDY_API_KEY_STORAGE = 'windy_api_key';
 
 const Tab = createBottomTabNavigator();
 
@@ -75,8 +80,16 @@ function MainNavigator() {
         name="Profile"
         component={ProfileScreen}
         options={{
-          title: 'Profile & Settings',
+          title: 'Profile',
           tabBarLabel: 'Profile',
+        }}
+      />
+      <Tab.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{
+          title: 'Settings',
+          tabBarLabel: 'Settings',
         }}
       />
     </Tab.Navigator>
@@ -85,8 +98,28 @@ function MainNavigator() {
 
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
+  const [apiKeyLoaded, setApiKeyLoaded] = useState(false);
 
-  if (isLoading) {
+  // Load saved Windy API key on app start
+  useEffect(() => {
+    const loadWindyApiKey = async () => {
+      try {
+        const storedApiKey = await AsyncStorage.getItem(WINDY_API_KEY_STORAGE);
+        if (storedApiKey) {
+          initializeWindyService(storedApiKey);
+          console.log('Windy API key loaded from storage');
+        }
+      } catch (err) {
+        console.error('Failed to load Windy API key:', err);
+      } finally {
+        setApiKeyLoaded(true);
+      }
+    };
+
+    loadWindyApiKey();
+  }, []);
+
+  if (isLoading || !apiKeyLoaded) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#0066CC" />

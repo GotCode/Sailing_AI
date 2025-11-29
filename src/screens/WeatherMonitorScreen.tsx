@@ -25,6 +25,8 @@ interface MonitoringConfig {
   maxWaveHeight: number;
   avoidStorms: boolean;
   ensureDaytimeArrival: boolean;
+  arrivalStartHour: number; // Earliest arrival hour (e.g., 6 for 6 AM)
+  arrivalEndHour: number; // Latest arrival hour (e.g., 17 for 5 PM)
   notifyViaPush: boolean;
   notifyViaSMS: boolean;
   notifyViaEmail: boolean;
@@ -35,12 +37,14 @@ interface MonitoringConfig {
 export default function WeatherMonitorScreen() {
   const [config, setConfig] = useState<MonitoringConfig>({
     enabled: false,
-    intervalHours: 6,
+    intervalHours: 4,
     forecastDays: 3,
-    maxWindSpeed: 25,
+    maxWindSpeed: 35,
     maxWaveHeight: 3,
     avoidStorms: true,
     ensureDaytimeArrival: true,
+    arrivalStartHour: 6, // 6 AM
+    arrivalEndHour: 17, // 5 PM
     notifyViaPush: true,
     notifyViaSMS: false,
     notifyViaEmail: false,
@@ -311,6 +315,54 @@ export default function WeatherMonitorScreen() {
             disabled={config.enabled}
           />
         </View>
+
+        {/* Arrival Time Range - shown when daylight arrival is enabled */}
+        {config.ensureDaytimeArrival && (
+          <View style={styles.arrivalTimeContainer}>
+            <Text style={styles.arrivalTimeLabel}>Arrival Time Window</Text>
+            <View style={styles.arrivalTimeRow}>
+              <View style={styles.arrivalTimeInput}>
+                <Text style={styles.arrivalTimeInputLabel}>From</Text>
+                <TextInput
+                  style={styles.input}
+                  value={config.arrivalStartHour.toString()}
+                  onChangeText={(text) => {
+                    const hour = parseInt(text) || 6;
+                    setConfig({ ...config, arrivalStartHour: Math.min(Math.max(hour, 0), 23) });
+                  }}
+                  keyboardType="numeric"
+                  editable={!config.enabled}
+                />
+                <Text style={styles.arrivalTimeHint}>
+                  {config.arrivalStartHour === 0 ? '12 AM' :
+                   config.arrivalStartHour < 12 ? `${config.arrivalStartHour} AM` :
+                   config.arrivalStartHour === 12 ? '12 PM' :
+                   `${config.arrivalStartHour - 12} PM`}
+                </Text>
+              </View>
+              <Text style={styles.arrivalTimeTo}>to</Text>
+              <View style={styles.arrivalTimeInput}>
+                <Text style={styles.arrivalTimeInputLabel}>To</Text>
+                <TextInput
+                  style={styles.input}
+                  value={config.arrivalEndHour.toString()}
+                  onChangeText={(text) => {
+                    const hour = parseInt(text) || 17;
+                    setConfig({ ...config, arrivalEndHour: Math.min(Math.max(hour, 0), 23) });
+                  }}
+                  keyboardType="numeric"
+                  editable={!config.enabled}
+                />
+                <Text style={styles.arrivalTimeHint}>
+                  {config.arrivalEndHour === 0 ? '12 AM' :
+                   config.arrivalEndHour < 12 ? `${config.arrivalEndHour} AM` :
+                   config.arrivalEndHour === 12 ? '12 PM' :
+                   `${config.arrivalEndHour - 12} PM`}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Notification Settings */}
@@ -611,5 +663,43 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     lineHeight: 18,
+  },
+  // Arrival time range styles
+  arrivalTimeContainer: {
+    backgroundColor: '#F5F5F5',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  arrivalTimeLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  arrivalTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  arrivalTimeInput: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  arrivalTimeInputLabel: {
+    fontSize: 11,
+    color: '#666',
+    marginBottom: 4,
+  },
+  arrivalTimeTo: {
+    fontSize: 14,
+    color: '#666',
+    marginHorizontal: 12,
+  },
+  arrivalTimeHint: {
+    fontSize: 11,
+    color: '#0066CC',
+    marginTop: 4,
+    fontWeight: '500',
   },
 });
