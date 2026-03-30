@@ -6,7 +6,11 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "setup": "npm install --legacy-peer-deps && cd backend && npm install",
+    "build:backend": "cd backend && npm run build",
+    "test:backend": "cd backend && npm test",
+    "ci": "npm run setup && npm run build:backend && npm run test:backend"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

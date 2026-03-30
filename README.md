@@ -99,17 +99,30 @@ A comprehensive cloud-based mobile application designed for Lagoon 440 catamaran
 
 1. **Clone or download this repository**
 
-2. **Install dependencies**:
+2. **Single-command setup, build, and test**:
 ```bash
-npm install
+npm run ci
 ```
 
-3. **Configure Windy.com API (Optional but Recommended)**:
+3. **(Optional) Use explicit commands**:
+```bash
+npm run setup
+npm run build:backend
+npm run test:backend
+```
+
+4. **Configure Windy.com API (Optional but Recommended)**:
    - Register for a free API key at https://api.windy.com/api-key
    - Open `src/services/windyService.ts`
    - Replace `'YOUR_WINDY_API_KEY'` with your actual API key
 
-4. **Start the development server**:
+5. **Run backend tests (beta verification)**:
+```bash
+cd backend
+npm test
+```
+
+6. **Start the development server**:
 ```bash
 npm start
 ```
