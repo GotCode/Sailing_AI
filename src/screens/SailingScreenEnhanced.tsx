@@ -46,8 +46,16 @@ import {
 } from '../utils/validation';
 import { parseLocationInput, getCoordinateFormatExamples } from '../utils/coordinateParser';
 import { ARRIVAL_TIME_WINDOW_STORAGE } from './SettingsScreen';
+import {
+  useResponsiveDimensions,
+  selectByDevice,
+  responsiveValues,
+  DeviceType,
+} from '../utils/responsiveDesign';
+import { getGoogleMapsService } from '../services/googleMapsService';
 
 const SailingScreenEnhanced: React.FC = () => {
+  const dims = useResponsiveDimensions();
   const { user } = useAuth();
   const navigation = useNavigation();
 
@@ -98,6 +106,9 @@ const SailingScreenEnhanced: React.FC = () => {
   const [simulationHour, setSimulationHour] = useState(0);
   const [simulatedWeather, setSimulatedWeather] = useState<SimulatedWeather | null>(null);
   const [stormAlerts, setStormAlerts] = useState<StormAlert[]>([]);
+
+  // ===== Map Button State =====
+  const [mapButtonMode, setMapButtonMode] = useState<'start' | 'destination'>('start');
 
   // ===== Real GPS Tracking State =====
   const [trackingRunning, setTrackingRunning] = useState(false);
@@ -643,8 +654,16 @@ const SailingScreenEnhanced: React.FC = () => {
       setDestination(coords);
     }
 
-    const url = `https://www.google.com/maps?q=${coords.latitude},${coords.longitude}`;
-    Linking.openURL(url);
+    // Use Google Maps service to generate URL
+    try {
+      const mapsService = getGoogleMapsService();
+      const url = mapsService.generateMapUrl(coords, [], []);
+      Linking.openURL(url);
+    } catch (err) {
+      // Fallback to basic Google Maps URL
+      const url = `https://www.google.com/maps?q=${coords.latitude},${coords.longitude}`;
+      Linking.openURL(url);
+    }
   };
 
   // ===== Location Permission and GPS =====
@@ -884,60 +903,95 @@ const SailingScreenEnhanced: React.FC = () => {
                 {simulationRunning ? 'Stop Sim' : 'Simulation'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowSavedRoutesModal(true)} style={styles.loadButton}>
+            <TouchableOpacity
+              onPress={() => setShowSavedRoutesModal(true)}
+              style={styles.loadButton}
+              accessibilityLabel="Load Saved Routes"
+              accessibilityHint="View and load previously saved routes"
+            >
               <Text style={styles.loadButtonText}>Load</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Start Point */}
-        <View style={styles.subsection}>
-          <View style={styles.labelRow}>
-            <Text style={styles.label}>Starting Point</Text>
-            <View style={styles.labelButtons}>
-              <TouchableOpacity onPress={showCoordinateFormatHelp} style={styles.helpButton}>
+        <View style={[styles.subsection, { flexDirection: dims.isMobile ? 'column' : 'row', gap: 12 }]}>
+          <View style={[styles.pointContainer, dims.isMobile ? { flex: 1 } : { flex: 1 }]}>
+            <View style={styles.labelRow}>
+              <Text style={[styles.label, { fontSize: selectByDevice(responsiveValues.fontSize.subtitle, dims.deviceType) }]}>
+                Starting Point
+              </Text>
+            </View>
+            <View style={[styles.labelButtons, { flexWrap: dims.isMobile ? 'wrap' : 'nowrap' }]}>
+              <TouchableOpacity
+                onPress={showCoordinateFormatHelp}
+                style={[styles.helpButton, dims.isTablet && { flex: 0.3 }]}
+                accessibilityLabel="Help"
+                accessibilityHint="Show coordinate format help and examples"
+              >
                 <Text style={styles.helpButtonText}>?</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={useCurrentLocationForStart} style={styles.gpsButton}>
+              <TouchableOpacity
+                onPress={useCurrentLocationForStart}
+                style={[styles.gpsButton, dims.isTablet && { flex: 0.4 }]}
+                accessibilityLabel="Use GPS"
+                accessibilityHint="Set start point to current GPS location"
+              >
                 <Text style={styles.gpsButtonText}>GPS</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => openGoogleMaps('start')} style={styles.mapButton}>
-                <Text style={styles.mapButtonText}>Map</Text>
+              <TouchableOpacity
+                onPress={() => openGoogleMaps('start')}
+                style={[styles.mapButton, dims.isTablet && { flex: 0.4 }]}
+                accessibilityLabel="Open Map"
+                accessibilityHint="Open Google Maps to select start location"
+              >
+                <Text style={styles.mapButtonText}>Open Map</Text>
               </TouchableOpacity>
             </View>
+            <TextInput
+              style={[styles.input, { fontSize: selectByDevice(responsiveValues.fontSize.body, dims.deviceType) }]}
+              placeholder="e.g. 25.7617, -80.1918 or 25°45.7'N, 80°11.5'W"
+              value={startInput}
+              onChangeText={setStartInput}
+              placeholderTextColor="#999"
+            />
+            {startPoint.latitude !== 0 && (
+              <Text style={[styles.coordDisplay, { fontSize: selectByDevice(responsiveValues.fontSize.small, dims.deviceType) }]}>
+                Parsed: {startPoint.latitude.toFixed(4)}°, {startPoint.longitude.toFixed(4)}°
+              </Text>
+            )}
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. 25.7617, -80.1918 or 25°45.7'N, 80°11.5'W"
-            value={startInput}
-            onChangeText={setStartInput}
-          />
-          {startPoint.latitude !== 0 && (
-            <Text style={styles.coordDisplay}>
-              Parsed: {startPoint.latitude.toFixed(4)}°, {startPoint.longitude.toFixed(4)}°
-            </Text>
-          )}
-        </View>
 
-        {/* Destination */}
-        <View style={styles.subsection}>
-          <View style={styles.labelRow}>
-            <Text style={styles.label}>Destination Point</Text>
-            <TouchableOpacity onPress={() => openGoogleMaps('destination')} style={styles.mapButton}>
-              <Text style={styles.mapButtonText}>Map</Text>
-            </TouchableOpacity>
+          {/* End Point */}
+          <View style={[styles.pointContainer, dims.isMobile ? { flex: 1 } : { flex: 1 }]}>
+            <View style={styles.labelRow}>
+              <Text style={[styles.label, { fontSize: selectByDevice(responsiveValues.fontSize.subtitle, dims.deviceType) }]}>
+                End Point
+              </Text>
+            </View>
+            <View style={[styles.labelButtons, { justifyContent: 'flex-start' }]}>
+              <TouchableOpacity
+                onPress={() => openGoogleMaps('destination')}
+                style={[styles.mapButton, dims.isMobile ? { flex: 1 } : { flex: 0.5 }]}
+                accessibilityLabel="Open Map"
+                accessibilityHint="Open Google Maps to select end location"
+              >
+                <Text style={styles.mapButtonText}>Open Map</Text>
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={[styles.input, { fontSize: selectByDevice(responsiveValues.fontSize.body, dims.deviceType) }]}
+              placeholder="e.g. 32.2949, -64.7814 or 32°17.7'N, 64°46.9'W"
+              value={destInput}
+              onChangeText={setDestInput}
+              placeholderTextColor="#999"
+            />
+            {destination.latitude !== 0 && (
+              <Text style={[styles.coordDisplay, { fontSize: selectByDevice(responsiveValues.fontSize.small, dims.deviceType) }]}>
+                Parsed: {destination.latitude.toFixed(4)}°, {destination.longitude.toFixed(4)}°
+              </Text>
+            )}
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. 32.2949, -64.7814 or 32°17.7'N, 64°46.9'W"
-            value={destInput}
-            onChangeText={setDestInput}
-          />
-          {destination.latitude !== 0 && (
-            <Text style={styles.coordDisplay}>
-              Parsed: {destination.latitude.toFixed(4)}°, {destination.longitude.toFixed(4)}°
-            </Text>
-          )}
         </View>
 
         {/* Start Date */}
@@ -955,7 +1009,12 @@ const SailingScreenEnhanced: React.FC = () => {
         </View>
 
         {/* Reverse Route Button */}
-        <TouchableOpacity onPress={reverseRoute} style={styles.reverseButton}>
+        <TouchableOpacity
+          onPress={reverseRoute}
+          style={styles.reverseButton}
+          accessibilityLabel="Reverse Route"
+          accessibilityHint="Swap start and end points"
+        >
           <Text style={styles.reverseButtonText}>⇅ Reverse Route</Text>
         </TouchableOpacity>
 
@@ -964,6 +1023,8 @@ const SailingScreenEnhanced: React.FC = () => {
           <TouchableOpacity
             onPress={() => saveRouteToProfile(plannedRoute)}
             style={styles.saveToProfileButton}
+            accessibilityLabel="Save Route"
+            accessibilityHint="Save current route to your profile for later use"
           >
             <Text style={styles.saveToProfileButtonText}>Save Route to Profile</Text>
           </TouchableOpacity>
@@ -1532,21 +1593,27 @@ const SailingScreenEnhanced: React.FC = () => {
               renderItem={({ item, index }) => {
                 const savedDate = item.updatedAt || item.createdAt;
                 const dateStr = savedDate
-                  ? new Date(savedDate).toLocaleString(undefined, {
+                  ? new Date(savedDate).toLocaleDateString(undefined, {
                       year: 'numeric',
                       month: 'short',
                       day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
                     })
                   : 'Unknown date';
+
+                // Generate route label: <Start-End><date>
+                const startPoint = item.waypoints[0];
+                const endPoint = item.waypoints[item.waypoints.length - 1];
+                const startCoords = startPoint ? `${startPoint.coordinates.latitude.toFixed(2)}°, ${startPoint.coordinates.longitude.toFixed(2)}°` : 'Unknown';
+                const endCoords = endPoint ? `${endPoint.coordinates.latitude.toFixed(2)}°, ${endPoint.coordinates.longitude.toFixed(2)}°` : 'Unknown';
+                const routeLabel = `<${startCoords}-${endCoords}><${dateStr}>`;
+
                 return (
                   <View style={styles.savedRouteItem}>
                     <TouchableOpacity
                       style={styles.savedRouteContent}
                       onPress={() => loadRouteFromProfile(item)}
                     >
-                      <Text style={styles.savedRouteName}>{item.name}</Text>
+                      <Text style={styles.savedRouteName}>{routeLabel}</Text>
                       <Text style={styles.savedRouteInfo}>
                         {item.waypoints.length} waypoints
                       </Text>
@@ -2358,6 +2425,27 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // Responsive container for Start and Destination points
+  pointContainer: {
+    marginBottom: 16,
+  },
+  // Updated map button styling
+  mapButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 4,
+    minHeight: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flex: 1,
+  },
+  mapButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
 

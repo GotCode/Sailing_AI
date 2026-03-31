@@ -19,21 +19,35 @@ import { getWindyService } from './windyService';
 
 /**
  * Calculate sunrise and sunset times for a given location and date
+ * Using astronomical calculations for accuracy
  */
 function calculateSunriseSunset(coordinates: GPSCoordinates, date: Date): { sunrise: Date; sunset: Date } {
-  // Simplified calculation - for production, use a library like suncalc
-  const lat = coordinates.latitude;
-  const dayOfYear = Math.floor((date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 86400000);
+  const lat = coordinates.latitude * Math.PI / 180; // Convert to radians
+  const lng = coordinates.longitude * Math.PI / 180;
 
-  // Approximate sunrise and sunset hours (6 AM to 6 PM as baseline)
-  const sunriseHour = 6;
-  const sunsetHour = 18;
+  // Calculate day of year
+  const startOfYear = new Date(date.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / 86400000);
 
+  // Solar declination approximation
+  const declination = 23.45 * Math.sin((360 * (284 + dayOfYear) / 365) * Math.PI / 180) * Math.PI / 180;
+
+  // Equation of time approximation (simplified)
+  const equationOfTime = 4 * (0.000075 + 0.001868 * Math.cos(2 * Math.PI * dayOfYear / 365) - 0.032077 * Math.sin(2 * Math.PI * dayOfYear / 365) - 0.014615 * Math.cos(4 * Math.PI * dayOfYear / 365) - 0.040849 * Math.sin(4 * Math.PI * dayOfYear / 365));
+
+  // Solar hour angle
+  const hourAngle = Math.acos((Math.sin(-0.83 * Math.PI / 180) - Math.sin(lat) * Math.sin(declination)) / (Math.cos(lat) * Math.cos(declination)));
+
+  // Calculate sunrise and sunset times in hours
+  const sunriseHour = 12 - (hourAngle * 180 / Math.PI) / 15 + equationOfTime / 60 - lng * 180 / (Math.PI * 15);
+  const sunsetHour = 12 + (hourAngle * 180 / Math.PI) / 15 + equationOfTime / 60 - lng * 180 / (Math.PI * 15);
+
+  // Create Date objects
   const sunrise = new Date(date);
-  sunrise.setHours(sunriseHour, 0, 0, 0);
+  sunrise.setHours(Math.floor(sunriseHour), (sunriseHour % 1) * 60, 0, 0);
 
   const sunset = new Date(date);
-  sunset.setHours(sunsetHour, 0, 0, 0);
+  sunset.setHours(Math.floor(sunsetHour), (sunsetHour % 1) * 60, 0, 0);
 
   return { sunrise, sunset };
 }

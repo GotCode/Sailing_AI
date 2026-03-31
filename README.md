@@ -353,6 +353,6 @@ For issues or questions:
 
 ## Credits
 
-- Lagoon 440 polar diagram data: Based on published performance specifications
+- Lagoon 440 polar diagram data: Based on a published performance specifications
 - Wind data: Powered by Windy.com API
 - Built with React Native and Expo
