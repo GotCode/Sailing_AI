@@ -214,7 +214,7 @@ export default function WeatherMonitorScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Weather Monitor</Text>
         <Text style={styles.subtitle}>
-          Monitor weather conditions along your route and receive alerts
+          Cloud AI agent monitors the weather condition along your sailing route and send weather alerts for changes
         </Text>
       </View>
 
@@ -385,6 +385,41 @@ export default function WeatherMonitorScreen() {
             </View>
           </View>
         )}
+      </View>
+
+      {/* Sailing AI Agent Parameters */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Sailing AI Agent Parameters</Text>
+
+        <View style={styles.configRow}>
+          <Text style={styles.label}>AI Sensitivity Level</Text>
+          <TextInput
+            style={styles.input}
+            value="Medium"
+            editable={false}
+            placeholder="AI-driven"
+          />
+        </View>
+
+        <View style={styles.configRow}>
+          <Text style={styles.label}>Prediction Model</Text>
+          <TextInput
+            style={styles.input}
+            value="Machine Learning"
+            editable={false}
+            placeholder="Advanced ML"
+          />
+        </View>
+
+        <View style={styles.configRow}>
+          <Text style={styles.label}>Alert Threshold</Text>
+          <TextInput
+            style={styles.input}
+            value="Adaptive"
+            editable={false}
+            placeholder="Context-aware"
+          />
+        </View>
       </View>
 
       {/* Notification Settings */}

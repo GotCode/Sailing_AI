@@ -24,7 +24,7 @@ const PolarScreen: React.FC = () => {
   const [showDetails, setShowDetails] = useState(false);
 
   // Engine activation threshold (default 3 knots)
-  const [engineThreshold, setEngineThreshold] = useState<string>('3');
+  const [engineThreshold, setEngineThreshold] = useState<number>(3);
 
   const windSpeedNum = parseFloat(windSpeed) || 12;
   const twaNum = parseFloat(currentTWA) || 90;
@@ -39,16 +39,16 @@ const PolarScreen: React.FC = () => {
     try {
       const stored = await AsyncStorage.getItem('engineWindThreshold');
       if (stored) {
-        setEngineThreshold(stored);
+        setEngineThreshold(parseFloat(stored) || 3);
       }
     } catch (err) {
       console.error('Failed to load engine threshold:', err);
     }
   };
 
-  const saveEngineThreshold = async (value: string) => {
+  const saveEngineThreshold = async (value: number) => {
     try {
-      await AsyncStorage.setItem('engineWindThreshold', value);
+      await AsyncStorage.setItem('engineWindThreshold', value.toString());
       setEngineThreshold(value);
       Alert.alert('Saved', `Engine activation threshold set to ${value} knots`);
     } catch (err) {
@@ -58,6 +58,7 @@ const PolarScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
+      <Text style={styles.screenTitle}>Lagoon 440 Polar Diagram</Text>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         {/* Engine Activation Settings */}
         <View style={styles.enginePanel}>
@@ -68,13 +69,19 @@ const PolarScreen: React.FC = () => {
           <View style={styles.engineInputRow}>
             <Text style={styles.label}>Wind Speed Threshold (knots)</Text>
             <View style={styles.engineInputContainer}>
-              <TextInput
-                style={styles.engineInput}
-                value={engineThreshold}
-                onChangeText={setEngineThreshold}
-                keyboardType="numeric"
-                placeholder="3"
-              />
+              <TouchableOpacity
+                style={styles.counterButton}
+                onPress={() => setEngineThreshold(Math.max(0, engineThreshold - 0.5))}
+              >
+                <Text style={styles.counterButtonText}>-</Text>
+              </TouchableOpacity>
+              <Text style={styles.counterValue}>{engineThreshold.toFixed(1)}</Text>
+              <TouchableOpacity
+                style={styles.counterButton}
+                onPress={() => setEngineThreshold(engineThreshold + 0.5)}
+              >
+                <Text style={styles.counterButtonText}>+</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.saveThresholdButton}
                 onPress={() => saveEngineThreshold(engineThreshold)}
@@ -86,6 +93,19 @@ const PolarScreen: React.FC = () => {
           <Text style={styles.engineNote}>
             Current threshold: {engineThreshold} knots (default: 3)
           </Text>
+        </View>
+
+        {/* Info Box */}
+        <View style={styles.infoBox}>
+          <Text style={styles.infoTitle}>About Polar Diagrams</Text>
+          <Text style={styles.infoText}>
+            A polar diagram shows your boat's theoretical speed at different wind angles and wind
+            speeds. Use it to:
+          </Text>
+          <Text style={styles.infoText}>• Find optimal sailing angles</Text>
+          <Text style={styles.infoText}>• Compare your actual speed vs. target</Text>
+          <Text style={styles.infoText}>• Choose the best sail configuration</Text>
+          <Text style={styles.infoText}>• Calculate VMG (Velocity Made Good)</Text>
         </View>
 
         {/* Control Panel */}
@@ -162,19 +182,6 @@ const PolarScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Info Box */}
-        <View style={styles.infoBox}>
-          <Text style={styles.infoTitle}>About Polar Diagrams</Text>
-          <Text style={styles.infoText}>
-            A polar diagram shows your boat's theoretical speed at different wind angles and wind
-            speeds. Use it to:
-          </Text>
-          <Text style={styles.infoText}>• Find optimal sailing angles</Text>
-          <Text style={styles.infoText}>• Compare your actual speed vs. target</Text>
-          <Text style={styles.infoText}>• Choose the best sail configuration</Text>
-          <Text style={styles.infoText}>• Calculate VMG (Velocity Made Good)</Text>
-        </View>
-
         {/* Bottom padding */}
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -214,6 +221,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
+  screenTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    paddingVertical: 16,
+    backgroundColor: '#F5F5F5',
+  },
   scrollView: {
     flex: 1,
   },
@@ -251,6 +266,26 @@ const styles = StyleSheet.create({
     padding: 10,
     fontSize: 14,
     backgroundColor: '#FFFFFF',
+  },
+  counterButton: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#FF9800',
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  counterButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  counterValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    minWidth: 50,
+    textAlign: 'center',
   },
   saveThresholdButton: {
     backgroundColor: '#FF9800',

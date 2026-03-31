@@ -119,10 +119,11 @@ const SailingScreenEnhanced: React.FC = () => {
   const [showRerouteDialog, setShowRerouteDialog] = useState(false);
   const [pendingReroute, setPendingReroute] = useState<Route | null>(null);
 
-  // ===== Weather Alert Popup State =====
-  const [showWeatherAlert, setShowWeatherAlert] = useState(false);
-  const [currentWeatherAlert, setCurrentWeatherAlert] = useState<StormAlert | null>(null);
-  const weatherAlertTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // ===== Date Picker State =====
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
+  const [pickerMonth, setPickerMonth] = useState(new Date().getMonth() + 1);
+  const [pickerDay, setPickerDay] = useState(new Date().getDate());
 
   // ===== Auto-close weather alert after 30 seconds =====
   useEffect(() => {
@@ -148,7 +149,7 @@ const SailingScreenEnhanced: React.FC = () => {
   // ===== Update navigation title with status message =====
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: `Lagoon 440 Sailing - [${statusMessage}]`,
+      title: `Sailing AI - [${statusMessage}]`,
     });
   }, [navigation, statusMessage]);
 
@@ -704,18 +705,21 @@ const SailingScreenEnhanced: React.FC = () => {
     }
   };
 
-  // ===== Calculate Sail Recommendation =====
-  useEffect(() => {
-    if (windSpeed && trueWindAngle) {
-      const ws = parseFloat(windSpeed);
-      const twa = parseFloat(trueWindAngle);
+  // ===== Open Date Picker =====
+  const openDatePicker = () => {
+    const date = new Date(startDate);
+    setPickerYear(date.getFullYear());
+    setPickerMonth(date.getMonth() + 1);
+    setPickerDay(date.getDate());
+    setShowDatePicker(true);
+  };
 
-      if (!isNaN(ws) && !isNaN(twa)) {
-        const recommendation = recommendSailConfiguration(ws, twa, sailingMode);
-        setSailRecommendation(recommendation);
-      }
-    }
-  }, [windSpeed, trueWindAngle, sailingMode]);
+  // ===== Confirm Date Picker =====
+  const confirmDatePicker = () => {
+    const dateStr = `${pickerYear}-${pickerMonth.toString().padStart(2, '0')}-${pickerDay.toString().padStart(2, '0')}`;
+    setStartDate(dateStr);
+    setShowDatePicker(false);
+  };
 
   // ===== Fetch Weather for Route Corridor =====
   const handleFetchWeather = async () => {
@@ -888,8 +892,73 @@ const SailingScreenEnhanced: React.FC = () => {
     return `${config} @ ${trimAngle.toFixed(0)}° AWA`;
   };
 
+  // ===== Get Route Modal Title =====
+  const getRouteModalTitle = () => {
+    if (!plannedRoute || plannedRoute.waypoints.length < 2) return 'Planned Route Waypoints';
+
+    const start = plannedRoute.waypoints[0];
+    const end = plannedRoute.waypoints[plannedRoute.waypoints.length - 1];
+
+    // Calculate total miles
+    const totalMiles = plannedRoute.waypoints.reduce((sum, wp, i) => {
+      return i > 0 ? sum + (wp.distanceFromPrevious || 0) : sum;
+    }, 0);
+
+    // Calculate total time
+    const startTime = new Date(startDate);
+    const endTime = end.estimatedArrival ? new Date(end.estimatedArrival) : startTime;
+    const totalMs = endTime.getTime() - startTime.getTime();
+    const totalDays = Math.floor(totalMs / (1000 * 60 * 60 * 24));
+    const totalHours = Math.floor((totalMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+
+    const timeStr = totalDays > 0 ? `${totalDays} days ${totalHours} hours` : `${totalHours} hours`;
+
+    return `Navigation Route from ${start.name} To ${end.name}, ${totalMiles.toFixed(1)} miles in ${timeStr}`;
+  };
+
   return (
     <ScrollView style={styles.container}>
+      {/* ===== SECTION 2: SAILING MODE ===== */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>⛵ Sailing Mode</Text>
+        <View style={styles.radioGroup}>
+          <TouchableOpacity
+            style={[styles.radioButton, sailingMode === SailingMode.COMFORT && styles.radioButtonSelected]}
+            onPress={() => setSailingMode(SailingMode.COMFORT)}
+          >
+            <View style={styles.radioCircle}>
+              {sailingMode === SailingMode.COMFORT && <View style={styles.radioSelected} />}
+            </View>
+            <Text style={styles.radioLabel}>Comfort</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.radioButton, sailingMode === SailingMode.SPEED && styles.radioButtonSelected]}
+            onPress={() => setSailingMode(SailingMode.SPEED)}
+          >
+            <View style={styles.radioCircle}>
+              {sailingMode === SailingMode.SPEED && <View style={styles.radioSelected} />}
+            </View>
+            <Text style={styles.radioLabel}>Speed</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.radioButton, sailingMode === SailingMode.MIXED && styles.radioButtonSelected]}
+            onPress={() => setSailingMode(SailingMode.MIXED)}
+          >
+            <View style={styles.radioCircle}>
+              {sailingMode === SailingMode.MIXED && <View style={styles.radioSelected} />}
+            </View>
+            <Text style={styles.radioLabel}>Mixed</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.helpText}>
+          {sailingMode === SailingMode.COMFORT && 'Prioritizes safety and ease of sailing'}
+          {sailingMode === SailingMode.SPEED && 'Optimizes for maximum speed'}
+          {sailingMode === SailingMode.MIXED && 'Balances speed and comfort'}
+        </Text>
+      </View>
+
       {/* ===== SECTION 1: ROUTE PLANNING ===== */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
@@ -969,10 +1038,10 @@ const SailingScreenEnhanced: React.FC = () => {
                 End Point
               </Text>
             </View>
-            <View style={[styles.labelButtons, { justifyContent: 'flex-start' }]}>
+            <View style={styles.labelButtons}>
               <TouchableOpacity
                 onPress={() => openGoogleMaps('destination')}
-                style={[styles.mapButton, dims.isMobile ? { flex: 1 } : { flex: 0.5 }]}
+                style={[styles.mapButton, { flex: 0.4 }]}
                 accessibilityLabel="Open Map"
                 accessibilityHint="Open Google Maps to select end location"
               >
@@ -997,12 +1066,22 @@ const SailingScreenEnhanced: React.FC = () => {
         {/* Start Date */}
         <View style={styles.subsection}>
           <Text style={styles.label}>Start Date</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="YYYY-MM-DD"
-            value={startDate}
-            onChangeText={setStartDate}
-          />
+          <View style={styles.dateRow}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              placeholder="YYYY-MM-DD"
+              value={startDate}
+              onChangeText={setStartDate}
+            />
+            <TouchableOpacity
+              onPress={openDatePicker}
+              style={styles.pickDateButton}
+              accessibilityLabel="Pick Date"
+              accessibilityHint="Open calendar to select start date"
+            >
+              <Text style={styles.pickDateButtonText}>📅</Text>
+            </TouchableOpacity>
+          </View>
           <Text style={styles.helpText}>
             Planned departure date for route planning and weather forecasts
           </Text>
@@ -1074,48 +1153,6 @@ const SailingScreenEnhanced: React.FC = () => {
           )}
         </View>
       )}
-
-      {/* ===== SECTION 2: SAILING MODE ===== */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>⛵ Sailing Mode</Text>
-        <View style={styles.radioGroup}>
-          <TouchableOpacity
-            style={[styles.radioButton, sailingMode === SailingMode.COMFORT && styles.radioButtonSelected]}
-            onPress={() => setSailingMode(SailingMode.COMFORT)}
-          >
-            <View style={styles.radioCircle}>
-              {sailingMode === SailingMode.COMFORT && <View style={styles.radioSelected} />}
-            </View>
-            <Text style={styles.radioLabel}>Comfort</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.radioButton, sailingMode === SailingMode.SPEED && styles.radioButtonSelected]}
-            onPress={() => setSailingMode(SailingMode.SPEED)}
-          >
-            <View style={styles.radioCircle}>
-              {sailingMode === SailingMode.SPEED && <View style={styles.radioSelected} />}
-            </View>
-            <Text style={styles.radioLabel}>Speed</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.radioButton, sailingMode === SailingMode.MIXED && styles.radioButtonSelected]}
-            onPress={() => setSailingMode(SailingMode.MIXED)}
-          >
-            <View style={styles.radioCircle}>
-              {sailingMode === SailingMode.MIXED && <View style={styles.radioSelected} />}
-            </View>
-            <Text style={styles.radioLabel}>Mixed</Text>
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.helpText}>
-          {sailingMode === SailingMode.COMFORT && 'Prioritizes safety and ease of sailing'}
-          {sailingMode === SailingMode.SPEED && 'Optimizes for maximum speed'}
-          {sailingMode === SailingMode.MIXED && 'Balances speed and comfort'}
-        </Text>
-      </View>
-
 
       {/* ===== SECTION 4: ACTION BUTTONS ===== */}
       <View style={styles.section}>
@@ -1386,6 +1423,57 @@ const SailingScreenEnhanced: React.FC = () => {
         </View>
       </Modal>
 
+      {/* Date Picker Modal */}
+      <Modal
+        visible={showDatePicker}
+        animationType="slide"
+        onRequestClose={() => setShowDatePicker(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Start Date</Text>
+            <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+              <Text style={styles.closeButton}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.datePickerContainer}>
+            <View style={styles.datePickerRow}>
+              <Text style={styles.datePickerLabel}>Year</Text>
+              <TouchableOpacity onPress={() => setPickerYear(pickerYear - 1)} style={styles.datePickerButton}>
+                <Text style={styles.datePickerButtonText}>-</Text>
+              </TouchableOpacity>
+              <Text style={styles.datePickerValue}>{pickerYear}</Text>
+              <TouchableOpacity onPress={() => setPickerYear(pickerYear + 1)} style={styles.datePickerButton}>
+                <Text style={styles.datePickerButtonText}>+</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.datePickerRow}>
+              <Text style={styles.datePickerLabel}>Month</Text>
+              <TouchableOpacity onPress={() => setPickerMonth(Math.max(1, pickerMonth - 1))} style={styles.datePickerButton}>
+                <Text style={styles.datePickerButtonText}>-</Text>
+              </TouchableOpacity>
+              <Text style={styles.datePickerValue}>{pickerMonth.toString().padStart(2, '0')}</Text>
+              <TouchableOpacity onPress={() => setPickerMonth(Math.min(12, pickerMonth + 1))} style={styles.datePickerButton}>
+                <Text style={styles.datePickerButtonText}>+</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.datePickerRow}>
+              <Text style={styles.datePickerLabel}>Day</Text>
+              <TouchableOpacity onPress={() => setPickerDay(Math.max(1, pickerDay - 1))} style={styles.datePickerButton}>
+                <Text style={styles.datePickerButtonText}>-</Text>
+              </TouchableOpacity>
+              <Text style={styles.datePickerValue}>{pickerDay.toString().padStart(2, '0')}</Text>
+              <TouchableOpacity onPress={() => setPickerDay(Math.min(31, pickerDay + 1))} style={styles.datePickerButton}>
+                <Text style={styles.datePickerButtonText}>+</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity onPress={confirmDatePicker} style={styles.confirmDateButton}>
+              <Text style={styles.confirmDateButtonText}>Confirm Date</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ===== WEATHER ALERT POPUP MODAL ===== */}
       <Modal
         visible={showWeatherAlert}
@@ -1478,7 +1566,7 @@ const SailingScreenEnhanced: React.FC = () => {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Planned Route Waypoints</Text>
+            <Text style={styles.modalTitle}>{getRouteModalTitle()}</Text>
             <TouchableOpacity onPress={() => setShowWaypointsModal(false)}>
               <Text style={styles.closeButton}>✕</Text>
             </TouchableOpacity>
@@ -1542,7 +1630,7 @@ const SailingScreenEnhanced: React.FC = () => {
                     </Text>
                     {item.estimatedArrival && (
                       <Text style={styles.waypointEta}>
-                        ETA: {new Date(item.estimatedArrival).toLocaleString()}
+                        {index === 0 ? 'Depart time:' : index === plannedRoute.waypoints.length - 1 ? '(ETA) Arrival time:' : 'ETA:'} {new Date(item.estimatedArrival).toLocaleString()}
                       </Text>
                     )}
                   </View>
@@ -2446,6 +2534,67 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pickDateButton: {
+    marginLeft: 10,
+    padding: 10,
+    backgroundColor: '#0066CC',
+    borderRadius: 4,
+  },
+  pickDateButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+  },
+  datePickerContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  datePickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    width: '80%',
+    justifyContent: 'space-between',
+  },
+  datePickerLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    width: 60,
+  },
+  datePickerButton: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#FF9800',
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  datePickerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  datePickerValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    minWidth: 50,
+    textAlign: 'center',
+  },
+  confirmDateButton: {
+    backgroundColor: '#0066CC',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 4,
+    marginTop: 20,
+  },
+  confirmDateButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

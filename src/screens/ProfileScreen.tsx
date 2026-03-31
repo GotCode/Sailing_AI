@@ -95,7 +95,7 @@ export default function ProfileScreen() {
 
       {/* Features Summary */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Your Features</Text>
+        <Text style={styles.sectionTitle}>AI Agent Features</Text>
 
         <View style={styles.featureItem}>
           <Text style={styles.featureIcon}>✓</Text>
