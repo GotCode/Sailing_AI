@@ -33,6 +33,7 @@ interface MonitoringConfig {
   notifyViaEmail: boolean;
   phoneNumber: string;
   email: string;
+  playSoundAndConfirm: boolean;
 }
 
 export default function WeatherMonitorScreen() {
@@ -51,6 +52,7 @@ export default function WeatherMonitorScreen() {
     notifyViaEmail: false,
     phoneNumber: '',
     email: '',
+    playSoundAndConfirm: true,
   });
 
   const [lastCheckTime, setLastCheckTime] = useState<Date | null>(null);
@@ -391,35 +393,29 @@ export default function WeatherMonitorScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Sailing AI Agent Parameters</Text>
 
-        <View style={styles.configRow}>
-          <Text style={styles.label}>AI Sensitivity Level</Text>
-          <TextInput
-            style={styles.input}
-            value="Medium"
-            editable={false}
-            placeholder="AI-driven"
-          />
+        <View style={styles.aiParamRow}>
+          <Text style={styles.aiParamLabel}>AI Intelligence Level</Text>
+          <Text style={styles.aiParamValue}>Advanced Machine Learning</Text>
         </View>
 
-        <View style={styles.configRow}>
-          <Text style={styles.label}>Prediction Model</Text>
-          <TextInput
-            style={styles.input}
-            value="Machine Learning"
-            editable={false}
-            placeholder="Advanced ML"
-          />
+        <View style={styles.aiParamRow}>
+          <Text style={styles.aiParamLabel}>Weather Prediction Model</Text>
+          <Text style={styles.aiParamValue}>Neural Network Ensemble</Text>
         </View>
 
-        <View style={styles.configRow}>
-          <Text style={styles.label}>Alert Threshold</Text>
-          <TextInput
-            style={styles.input}
-            value="Adaptive"
-            editable={false}
-            placeholder="Context-aware"
-          />
+        <View style={styles.aiParamRow}>
+          <Text style={styles.aiParamLabel}>Alert Sensitivity</Text>
+          <Text style={styles.aiParamValue}>Context-Aware Adaptive</Text>
         </View>
+
+        <View style={styles.aiParamRow}>
+          <Text style={styles.aiParamLabel}>Learning Capability</Text>
+          <Text style={styles.aiParamValue}>Continuous Route-Based</Text>
+        </View>
+
+        <Text style={styles.aiDescription}>
+          The AI agent continuously learns from your sailing patterns and weather conditions to provide increasingly accurate predictions and more relevant alerts.
+        </Text>
       </View>
 
       {/* Notification Settings */}
@@ -486,6 +482,17 @@ export default function WeatherMonitorScreen() {
             />
           </View>
         )}
+
+        <View style={styles.toggleRow}>
+          <Text style={styles.label}>Play Sound and Confirm Alert</Text>
+          <Switch
+            value={config.playSoundAndConfirm}
+            onValueChange={(value) =>
+              setConfig({ ...config, playSoundAndConfirm: value })
+            }
+            disabled={config.enabled}
+          />
+        </View>
       </View>
 
       {/* Active Alerts */}
@@ -530,9 +537,9 @@ export default function WeatherMonitorScreen() {
 
       {/* Info Box */}
       <View style={styles.infoBox}>
-        <Text style={styles.infoTitle}>ℹ️ About Weather Monitoring</Text>
+        <Text style={styles.infoTitle}>ℹ️ About AI Weather Monitoring</Text>
         <Text style={styles.infoText}>
-          • Monitors weather conditions at waypoints and along your route{'\n'}
+          • AI agent monitors weather conditions at waypoints and along your route{'\n'}
           • Checks every {config.intervalHours} hours for {config.forecastDays}-day forecasts{'\n'}
           • Sends alerts for high winds, waves, storms, and arrival time issues{'\n'}
           • Notifications sent via your preferred method(s){'\n'}
@@ -758,5 +765,35 @@ const styles = StyleSheet.create({
     color: '#0066CC',
     marginTop: 4,
     fontWeight: '500',
+  },
+  // AI Parameters styles
+  aiParamRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingVertical: 8,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+  },
+  aiParamLabel: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+    flex: 1,
+  },
+  aiParamValue: {
+    fontSize: 14,
+    color: '#0066CC',
+    fontWeight: '600',
+    textAlign: 'right',
+  },
+  aiDescription: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 8,
+    lineHeight: 16,
   },
 });

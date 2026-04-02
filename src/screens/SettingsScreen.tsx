@@ -320,7 +320,7 @@ const SettingsScreen: React.FC = () => {
         <Text style={styles.sectionTitle}>About Sailing AI</Text>
         <Text style={styles.aboutText}>
           Sailing AI is a comprehensive sailing assistant for your Lagoon 440 catamaran.
-          Features include route planning, weather monitoring, polar diagrams, and sail configuration recommendations.
+          Features include route planning, AI-powered weather monitoring, polar diagrams, and sail configuration recommendations.
         </Text>
         <Text style={styles.version}>Version 1.0.0</Text>
       </View>

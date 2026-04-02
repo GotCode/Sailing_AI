@@ -553,6 +553,23 @@ const SailingScreenEnhanced: React.FC = () => {
     setSimulationRunning(true);
     setStatusMessage('Simulation started: Bermuda → Nassau');
 
+    // Check if weather monitoring is enabled and send initial notification
+    const monitoringService = getWeatherMonitoringService();
+    if (monitoringService.isMonitoring()) {
+      // Create an initial notification that monitoring has started with the simulation
+      const initialAlert = {
+        id: `sim-start-${Date.now()}`,
+        type: 'info',
+        severity: 'low',
+        title: 'Weather Monitoring Active',
+        message: 'Weather monitoring is now active for your simulation route. You will receive alerts for weather changes and conditions.',
+        timestamp: new Date(),
+        location: simulationRoute.waypoints[0].coordinates,
+        acknowledged: false,
+      };
+      monitoringService.addSimulatedAlert(initialAlert);
+    }
+
     Alert.alert(
       'Simulation Started',
       'Atlantic Route: Bermuda → Nassau, Bahamas\n\n' +
@@ -565,17 +582,17 @@ const SailingScreenEnhanced: React.FC = () => {
     );
   };
 
-  // ===== Start Real GPS Tracking =====
+  // ===== Start Realtime GPS Tracking =====
   const startRealTracking = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location permission is required for real GPS tracking.');
+        Alert.alert('Permission Denied', 'Location permission is required for realtime GPS tracking.');
         return;
       }
 
       setTrackingRunning(true);
-      setStatusMessage('Real GPS Tracking started');
+      setStatusMessage('Realtime GPS Tracking started');
 
       // Start watching position
       trackingSubscriptionRef.current = await Location.watchPositionAsync(
@@ -598,7 +615,7 @@ const SailingScreenEnhanced: React.FC = () => {
       );
 
       Alert.alert(
-        'Real GPS Tracking Started',
+        'Realtime GPS Tracking Started',
         'Your position will be tracked and displayed on the route map.\n\n' +
         '• Updates every 5 seconds\n' +
         '• Requires GPS/Location enabled\n' +
@@ -611,7 +628,7 @@ const SailingScreenEnhanced: React.FC = () => {
     }
   };
 
-  // ===== Stop Real GPS Tracking =====
+  // ===== Stop Realtime GPS Tracking =====
   const stopRealTracking = () => {
     if (trackingSubscriptionRef.current) {
       trackingSubscriptionRef.current.remove();
@@ -843,11 +860,10 @@ const SailingScreenEnhanced: React.FC = () => {
         ensureDaytimeArrival,
         maxDailyDistance: 150,
         preferredWaypointInterval: 50,
+        startDate: new Date(startDate),
       };
 
       const route = await planRoute(config);
-      // Add start date to the route
-      route.startDate = new Date(startDate);
       setPlannedRoute(route);
       setShowWaypointsModal(true);
       setStatusMessage(`Route planned: ${route.waypoints.length} waypoints`);
@@ -875,9 +891,12 @@ const SailingScreenEnhanced: React.FC = () => {
   // ===== Use Current Location =====
   const useCurrentLocationForStart = () => {
     if (currentPosition.latitude !== 0) {
-      setStartInput(`${currentPosition.latitude.toFixed(6)}, ${currentPosition.longitude.toFixed(6)}`);
+      const gpsFormat = `${currentPosition.latitude.toFixed(6)}, ${currentPosition.longitude.toFixed(6)}`;
+      setStartInput(gpsFormat);
       setStartPoint(currentPosition);
-      setStatusMessage('GPS location set as start');
+      setDestInput(gpsFormat);
+      setDestination(currentPosition);
+      setStatusMessage('GPS location set for both start and end points');
     } else {
       Alert.alert('No GPS Data', 'Please enable location services');
     }
@@ -925,6 +944,8 @@ const SailingScreenEnhanced: React.FC = () => {
           <TouchableOpacity
             style={[styles.radioButton, sailingMode === SailingMode.COMFORT && styles.radioButtonSelected]}
             onPress={() => setSailingMode(SailingMode.COMFORT)}
+            accessibilityLabel="Comfort sailing mode"
+            title="Comfort sailing mode - prioritizes safety and ease of sailing"
           >
             <View style={styles.radioCircle}>
               {sailingMode === SailingMode.COMFORT && <View style={styles.radioSelected} />}
@@ -935,6 +956,8 @@ const SailingScreenEnhanced: React.FC = () => {
           <TouchableOpacity
             style={[styles.radioButton, sailingMode === SailingMode.SPEED && styles.radioButtonSelected]}
             onPress={() => setSailingMode(SailingMode.SPEED)}
+            accessibilityLabel="Speed sailing mode"
+            title="Speed sailing mode - optimizes for maximum speed"
           >
             <View style={styles.radioCircle}>
               {sailingMode === SailingMode.SPEED && <View style={styles.radioSelected} />}
@@ -945,6 +968,8 @@ const SailingScreenEnhanced: React.FC = () => {
           <TouchableOpacity
             style={[styles.radioButton, sailingMode === SailingMode.MIXED && styles.radioButtonSelected]}
             onPress={() => setSailingMode(SailingMode.MIXED)}
+            accessibilityLabel="Mixed sailing mode"
+            title="Mixed sailing mode - balances speed and comfort"
           >
             <View style={styles.radioCircle}>
               {sailingMode === SailingMode.MIXED && <View style={styles.radioSelected} />}
@@ -967,6 +992,8 @@ const SailingScreenEnhanced: React.FC = () => {
             <TouchableOpacity
               onPress={loadSimulationRoute}
               style={[styles.simulationButton, simulationRunning && styles.simulationButtonRunning]}
+              accessibilityLabel={simulationRunning ? "Stop simulation" : "Start route simulation"}
+              title={simulationRunning ? "Stop the current route simulation" : "Start a route simulation with weather changes"}
             >
               <Text style={styles.simulationButtonText}>
                 {simulationRunning ? 'Stop Sim' : 'Simulation'}
@@ -977,6 +1004,7 @@ const SailingScreenEnhanced: React.FC = () => {
               style={styles.loadButton}
               accessibilityLabel="Load Saved Routes"
               accessibilityHint="View and load previously saved routes"
+              title="Load and manage your saved routes"
             >
               <Text style={styles.loadButtonText}>Load</Text>
             </TouchableOpacity>
@@ -997,14 +1025,16 @@ const SailingScreenEnhanced: React.FC = () => {
                 style={[styles.helpButton, dims.isTablet && { flex: 0.3 }]}
                 accessibilityLabel="Help"
                 accessibilityHint="Show coordinate format help and examples"
+                title="Show coordinate format examples and help"
               >
                 <Text style={styles.helpButtonText}>?</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={useCurrentLocationForStart}
                 style={[styles.gpsButton, dims.isTablet && { flex: 0.4 }]}
-                accessibilityLabel="Use GPS"
-                accessibilityHint="Set start point to current GPS location"
+                accessibilityLabel="Use GPS for both points"
+                accessibilityHint="Set both start and end points to current GPS location"
+                title="Set both start and end points to current GPS location"
               >
                 <Text style={styles.gpsButtonText}>GPS</Text>
               </TouchableOpacity>
@@ -1013,6 +1043,7 @@ const SailingScreenEnhanced: React.FC = () => {
                 style={[styles.mapButton, dims.isTablet && { flex: 0.4 }]}
                 accessibilityLabel="Open Map"
                 accessibilityHint="Open Google Maps to select start location"
+                title="Open Google Maps to select start location"
               >
                 <Text style={styles.mapButtonText}>Open Map</Text>
               </TouchableOpacity>
@@ -1041,9 +1072,10 @@ const SailingScreenEnhanced: React.FC = () => {
             <View style={styles.labelButtons}>
               <TouchableOpacity
                 onPress={() => openGoogleMaps('destination')}
-                style={[styles.mapButton, { flex: 0.4 }]}
+                style={[styles.mapButton, dims.isTablet && { flex: 0.4 }]}
                 accessibilityLabel="Open Map"
                 accessibilityHint="Open Google Maps to select end location"
+                title="Open Google Maps to select end location"
               >
                 <Text style={styles.mapButtonText}>Open Map</Text>
               </TouchableOpacity>
@@ -1078,6 +1110,7 @@ const SailingScreenEnhanced: React.FC = () => {
               style={styles.pickDateButton}
               accessibilityLabel="Pick Date"
               accessibilityHint="Open calendar to select start date"
+              title="Open calendar dialog to select start date"
             >
               <Text style={styles.pickDateButtonText}>📅</Text>
             </TouchableOpacity>
@@ -1093,6 +1126,7 @@ const SailingScreenEnhanced: React.FC = () => {
           style={styles.reverseButton}
           accessibilityLabel="Reverse Route"
           accessibilityHint="Swap start and end points"
+          title="Swap start and end points of the route"
         >
           <Text style={styles.reverseButtonText}>⇅ Reverse Route</Text>
         </TouchableOpacity>
@@ -1693,7 +1727,7 @@ const SailingScreenEnhanced: React.FC = () => {
                 const endPoint = item.waypoints[item.waypoints.length - 1];
                 const startCoords = startPoint ? `${startPoint.coordinates.latitude.toFixed(2)}°, ${startPoint.coordinates.longitude.toFixed(2)}°` : 'Unknown';
                 const endCoords = endPoint ? `${endPoint.coordinates.latitude.toFixed(2)}°, ${endPoint.coordinates.longitude.toFixed(2)}°` : 'Unknown';
-                const routeLabel = `<${startCoords}-${endCoords}><${dateStr}>`;
+                const routeLabel = `route <${startCoords}-${endCoords}><${dateStr}>`;
 
                 return (
                   <View style={styles.savedRouteItem}>

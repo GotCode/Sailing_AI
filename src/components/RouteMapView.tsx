@@ -642,7 +642,7 @@ export default function RouteMapView({
           {/* Mode Toggle */}
           <View style={styles.modeToggleContainer}>
             <Text style={[styles.modeLabel, !isSimulationMode && styles.modeLabelActive]}>
-              Real GPS
+              Realtime
             </Text>
             <Switch
               value={isSimulationMode}
@@ -713,7 +713,7 @@ export default function RouteMapView({
                   <Text style={styles.simButtonText}>Stop Tracking</Text>
                 </>
               ) : (
-                <Text style={styles.simButtonText}>Start Real Tracking</Text>
+                <Text style={styles.simButtonText}>Start Route</Text>
               )}
             </TouchableOpacity>
           )}

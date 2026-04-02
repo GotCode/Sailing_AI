@@ -117,4 +117,5 @@ export interface RoutePlanningConfig {
   ensureDaytimeArrival: boolean;
   maxDailyDistance: number; // nautical miles
   preferredWaypointInterval: number; // nautical miles
+  startDate?: Date;
 }

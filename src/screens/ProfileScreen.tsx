@@ -109,7 +109,7 @@ export default function ProfileScreen() {
 
         <View style={styles.featureItem}>
           <Text style={styles.featureIcon}>✓</Text>
-          <Text style={styles.featureText}>Weather Monitoring & Alerts</Text>
+          <Text style={styles.featureText}>AI Weather Monitoring & Alerts</Text>
         </View>
 
         <View style={styles.featureItem}>
@@ -124,7 +124,7 @@ export default function ProfileScreen() {
 
         <View style={styles.featureItem}>
           <Text style={styles.featureIcon}>✓</Text>
-          <Text style={styles.featureText}>Polar Diagram Analysis</Text>
+          <Text style={styles.featureText}>Sailing Polar Configuration</Text>
         </View>
       </View>
 

@@ -270,7 +270,7 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
   let totalSailingTime = totalDistance / averageSpeed;
 
   // Determine departure time
-  let departureTime = new Date();
+  let departureTime = config.startDate || new Date();
   let daylightAdjustment = { adjustedForDaylight: false, message: undefined as string | undefined };
 
   if (ensureDaytimeArrival) {

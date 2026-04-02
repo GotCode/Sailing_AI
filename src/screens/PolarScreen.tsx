@@ -58,44 +58,9 @@ const PolarScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.screenTitle}>Lagoon 440 Polar Diagram</Text>
+      <Text style={styles.screenTitle}>Sailing Polar Configuration</Text>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {/* Engine Activation Settings */}
-        <View style={styles.enginePanel}>
-          <Text style={styles.panelTitle}>Engine Activation Settings</Text>
-          <Text style={styles.engineDescription}>
-            When wind speed falls below this threshold, the engine will be automatically activated during route planning.
-          </Text>
-          <View style={styles.engineInputRow}>
-            <Text style={styles.label}>Wind Speed Threshold (knots)</Text>
-            <View style={styles.engineInputContainer}>
-              <TouchableOpacity
-                style={styles.counterButton}
-                onPress={() => setEngineThreshold(Math.max(0, engineThreshold - 0.5))}
-              >
-                <Text style={styles.counterButtonText}>-</Text>
-              </TouchableOpacity>
-              <Text style={styles.counterValue}>{engineThreshold.toFixed(1)}</Text>
-              <TouchableOpacity
-                style={styles.counterButton}
-                onPress={() => setEngineThreshold(engineThreshold + 0.5)}
-              >
-                <Text style={styles.counterButtonText}>+</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.saveThresholdButton}
-                onPress={() => saveEngineThreshold(engineThreshold)}
-              >
-                <Text style={styles.saveButtonText}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          <Text style={styles.engineNote}>
-            Current threshold: {engineThreshold} knots (default: 3)
-          </Text>
-        </View>
-
-        {/* Info Box */}
+        {/* Info Box - Moved to top */}
         <View style={styles.infoBox}>
           <Text style={styles.infoTitle}>About Polar Diagrams</Text>
           <Text style={styles.infoText}>
@@ -108,9 +73,11 @@ const PolarScreen: React.FC = () => {
           <Text style={styles.infoText}>• Calculate VMG (Velocity Made Good)</Text>
         </View>
 
+        {/* Engine Activation Settings */}
+
         {/* Control Panel */}
         <View style={styles.controlPanel}>
-          <Text style={styles.panelTitle}>Polar Diagram Controls</Text>
+          <Text style={styles.panelTitle}>Sailing Polar Controls</Text>
 
           <View style={styles.inputRow}>
             <View style={styles.inputGroup}>
@@ -194,7 +161,7 @@ const PolarScreen: React.FC = () => {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Polar Diagram Details</Text>
+            <Text style={styles.modalTitle}>Sailing Polar Details</Text>
             <TouchableOpacity onPress={() => setShowDetails(false)}>
               <Text style={styles.closeButton}>✕</Text>
             </TouchableOpacity>

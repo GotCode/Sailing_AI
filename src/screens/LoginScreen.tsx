@@ -141,7 +141,7 @@ export default function LoginScreen({ onNavigateToRegister }: LoginScreenProps) 
           </View>
           <View style={styles.featureItem}>
             <Text style={styles.featureIcon}>🌤️</Text>
-            <Text style={styles.featureText}>Weather monitoring & alerts</Text>
+            <Text style={styles.featureText}>AI weather monitoring & alerts</Text>
           </View>
           <View style={styles.featureItem}>
             <Text style={styles.featureIcon}>💾</Text>

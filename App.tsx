@@ -48,7 +48,7 @@ function MainNavigator() {
         name="Sailing"
         component={SailingScreen}
         options={{
-          title: 'Lagoon 440 Sailing',
+          title: 'Sailing AI',
           tabBarLabel: 'Sailing',
         }}
       />
@@ -64,7 +64,7 @@ function MainNavigator() {
         name="Polar"
         component={PolarScreen}
         options={{
-          title: 'Polar Diagram',
+          title: 'Sailing Polar Configuration',
           tabBarLabel: 'Polar',
         }}
       />

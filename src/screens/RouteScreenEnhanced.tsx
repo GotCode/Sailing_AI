@@ -362,6 +362,10 @@ const RouteScreenEnhanced: React.FC = () => {
   };
 
   const deleteWaypoint = (waypointId: string) => {
+    if (currentRoute!.waypoints.length <= 2) {
+      Alert.alert('Cannot Delete', 'A route must have at least 2 waypoints.');
+      return;
+    }
     Alert.alert(
       'Delete Waypoint',
       'Are you sure you want to delete this waypoint?',
@@ -648,6 +652,7 @@ const RouteScreenEnhanced: React.FC = () => {
             style={styles.actionButton}
             onPress={(e) => { e.stopPropagation(); moveWaypoint(index, 'up'); }}
             disabled={index === 0}
+            accessibilityLabel="Move waypoint up in the route order" title="Move waypoint up in the route order"
           >
             <Text style={[styles.actionButtonText, index === 0 && styles.actionButtonDisabled]}>↑</Text>
           </TouchableOpacity>
@@ -656,6 +661,7 @@ const RouteScreenEnhanced: React.FC = () => {
             style={styles.actionButton}
             onPress={(e) => { e.stopPropagation(); moveWaypoint(index, 'down'); }}
             disabled={index === currentRoute!.waypoints.length - 1}
+            accessibilityLabel="Move waypoint down in the route order" title="Move waypoint down in the route order"
           >
             <Text style={[styles.actionButtonText, index === currentRoute!.waypoints.length - 1 && styles.actionButtonDisabled]}>↓</Text>
           </TouchableOpacity>
@@ -663,6 +669,7 @@ const RouteScreenEnhanced: React.FC = () => {
           <TouchableOpacity
             style={[styles.actionButton, styles.editButton]}
             onPress={(e) => { e.stopPropagation(); openWaypointModal(item); }}
+            accessibilityLabel="Edit this waypoint's details" title="Edit this waypoint's details"
           >
             <Text style={styles.actionButtonText}>✎</Text>
           </TouchableOpacity>
@@ -670,6 +677,7 @@ const RouteScreenEnhanced: React.FC = () => {
           <TouchableOpacity
             style={[styles.actionButton, styles.deleteButton]}
             onPress={(e) => { e.stopPropagation(); deleteWaypoint(item.id); }}
+            accessibilityLabel="Delete this waypoint from the route" title="Delete this waypoint from the route"
           >
             <Text style={styles.actionButtonText}>✕</Text>
           </TouchableOpacity>
@@ -685,7 +693,7 @@ const RouteScreenEnhanced: React.FC = () => {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Route Management</Text>
+        <Text style={styles.headerTitle}>Route Review & Edit</Text>
         <Text style={styles.headerSubtitle}>
           {currentRoute ? `${currentRoute.waypoints.length} waypoints` : 'No active route'}
         </Text>
@@ -729,11 +737,11 @@ const RouteScreenEnhanced: React.FC = () => {
 
       {/* Action Buttons */}
       <View style={styles.actionBar}>
-        <TouchableOpacity style={styles.primaryButton} onPress={() => openWaypointModal()}>
+        <TouchableOpacity style={styles.primaryButton} onPress={() => openWaypointModal()} accessibilityLabel="Add a new waypoint to the route" title="Add a new waypoint to the route">
           <Text style={styles.buttonText}>+ Add Waypoint</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.secondaryButton} onPress={handleImportGPX}>
+        <TouchableOpacity style={styles.secondaryButton} onPress={handleImportGPX} accessibilityLabel="Import waypoints from a GPX file" title="Import waypoints from a GPX file">
           <Text style={styles.buttonText}>Import GPX</Text>
         </TouchableOpacity>
 
@@ -741,6 +749,7 @@ const RouteScreenEnhanced: React.FC = () => {
           style={[styles.secondaryButton, (!currentRoute || currentRoute.waypoints.length === 0) && styles.buttonDisabled]}
           onPress={handleExportRoute}
           disabled={!currentRoute || currentRoute.waypoints.length === 0}
+          accessibilityLabel="Export the current route to a GPX file" title="Export the current route to a GPX file"
         >
           <Text style={styles.buttonText}>Export</Text>
         </TouchableOpacity>
