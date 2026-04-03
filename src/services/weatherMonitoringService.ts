@@ -6,10 +6,23 @@ import {
   WindForecast,
   GPSCoordinates,
   SailingData,
+  StormHandlingConfig,
+  StormHandlingRecommendation,
 } from '../types/sailing';
 import { getWindyService } from './windyService';
-import { calculateDistance, calculateBearing } from '../utils/sailingCalculations';
+import { calculateDistance, calculateBearing, evaluateStormTactic } from '../utils/sailingCalculations';
 import { sendWeatherAlert } from './notificationApi';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { formatCoordsDM } from '../utils/coordinateParser';
+
+const STORM_HANDLING_CONFIG_STORAGE = 'storm_handling_config';
+
+const DEFAULT_STORM_CONFIG: StormHandlingConfig = {
+  hasParachuteSeaAnchor: false,
+  hasJordanSeriesDrogue: false,
+  autopilotReliable: true,
+  defaultSeaRoomNm: 50,
+};
 
 export interface MonitoringConfig {
   intervalHours: number; // Check weather every X hours
@@ -26,13 +39,14 @@ export interface MonitoringConfig {
 export interface WeatherAlert {
   id: string;
   timestamp: Date;
-  type: 'storm' | 'high_wind' | 'high_waves' | 'squall' | 'daytime_arrival';
+  type: 'storm' | 'high_wind' | 'high_waves' | 'squall' | 'daytime_arrival' | 'storm_handling';
   severity: 'low' | 'medium' | 'high' | 'critical';
   location: GPSCoordinates;
   distance: number; // nautical miles from current position
   message: string;
   recommendation?: string;
   alternativeRoute?: Waypoint[];
+  stormHandling?: StormHandlingRecommendation; // Lagoon 440 specific tactic
 }
 
 export interface WeatherHistory {
@@ -50,9 +64,18 @@ export class WeatherMonitoringService {
   private alerts: WeatherAlert[] = [];
   private currentRoute: Route | null = null;
   private currentPosition: GPSCoordinates | null = null;
+  private onStormDetected: ((alerts: WeatherAlert[], affectedWaypoints: Waypoint[]) => void) | null = null;
 
   constructor(config: MonitoringConfig) {
     this.config = config;
+  }
+
+  /**
+   * Register a callback for when storm conditions are detected.
+   * The UI uses this to trigger re-route dialog and storm alerts.
+   */
+  setOnStormDetected(callback: (alerts: WeatherAlert[], affectedWaypoints: Waypoint[]) => void) {
+    this.onStormDetected = callback;
   }
 
   /**
@@ -139,6 +162,15 @@ export class WeatherMonitoringService {
     if (newAlerts.length > 0) {
       this.sendNotifications(newAlerts);
     }
+
+    // Trigger storm callback if storm-handling alerts detected
+    const stormAlerts = newAlerts.filter(a => a.type === 'storm_handling');
+    if (stormAlerts.length > 0 && this.onStormDetected && this.currentRoute) {
+      const affectedWaypoints = this.currentRoute.waypoints.filter(wp =>
+        wp.weatherForecast && wp.weatherForecast.windSpeed >= 25
+      );
+      this.onStormDetected(stormAlerts, affectedWaypoints);
+    }
   }
 
   /**
@@ -178,9 +210,7 @@ export class WeatherMonitoringService {
             severity: this.getSeverity(forecast.windSpeed, this.config.maxWindSpeed),
             location,
             distance,
-            message: `High wind forecast: ${forecast.windSpeed} kts at ${location.latitude.toFixed(
-              2
-            )}, ${location.longitude.toFixed(2)}`,
+            message: `High wind forecast: ${forecast.windSpeed} kts at ${formatCoordsDM(location.latitude, location.longitude)}`,
             recommendation: 'Consider delaying departure or altering course',
           });
         }
@@ -194,9 +224,7 @@ export class WeatherMonitoringService {
             severity: this.getSeverity(forecast.waveHeight, this.config.maxWaveHeight),
             location,
             distance,
-            message: `High waves forecast: ${forecast.waveHeight}m at ${location.latitude.toFixed(
-              2
-            )}, ${location.longitude.toFixed(2)}`,
+            message: `High waves forecast: ${forecast.waveHeight}m at ${formatCoordsDM(location.latitude, location.longitude)}`,
             recommendation: 'Seek shelter or wait for conditions to improve',
           });
         }
@@ -210,9 +238,7 @@ export class WeatherMonitoringService {
             severity: 'critical',
             location,
             distance,
-            message: `Storm system detected: ${forecast.windSpeed} kts winds, ${
-              forecast.waveHeight
-            }m waves at ${location.latitude.toFixed(2)}, ${location.longitude.toFixed(2)}`,
+            message: `Storm system detected: ${forecast.windSpeed} kts winds, ${forecast.waveHeight}m waves at ${formatCoordsDM(location.latitude, location.longitude)}`,
             recommendation: 'AVOID THIS AREA. Seek alternative route or safe harbor.',
           });
         }
@@ -227,11 +253,40 @@ export class WeatherMonitoringService {
             severity: 'high',
             location,
             distance,
-            message: `Squall activity detected: Gusts up to ${
-              forecast.gustSpeed
-            } kts at ${location.latitude.toFixed(2)}, ${location.longitude.toFixed(2)}`,
+            message: `Squall activity detected: Gusts up to ${forecast.gustSpeed} kts at ${formatCoordsDM(location.latitude, location.longitude)}`,
             recommendation: 'Prepare for sudden wind shifts and increased wind speed',
           });
+        }
+
+        // Storm handling tactic evaluation for Lagoon 440
+        if (forecast.windSpeed >= 25) {
+          let stormEquipment: StormHandlingConfig = DEFAULT_STORM_CONFIG;
+          try {
+            const stored = await AsyncStorage.getItem(STORM_HANDLING_CONFIG_STORAGE);
+            if (stored) stormEquipment = JSON.parse(stored);
+          } catch (_) { /* use defaults */ }
+
+          const handling = evaluateStormTactic(
+            forecast.windSpeed,
+            forecast.waveHeight,
+            0, // wave period unknown
+            stormEquipment.defaultSeaRoomNm,
+            stormEquipment
+          );
+
+          if (handling.severity !== 'normal') {
+            alerts.push({
+              id: `alert-storm-handling-${Date.now()}-${Math.random()}`,
+              timestamp: new Date(),
+              type: 'storm_handling',
+              severity: handling.severity === 'danger' ? 'critical' : 'high',
+              location,
+              distance,
+              message: `⛈️ ${handling.label}: ${handling.reason}`,
+              recommendation: handling.details.join(' • '),
+              stormHandling: handling,
+            });
+          }
         }
       }
     } catch (error) {

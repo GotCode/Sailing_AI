@@ -1,7 +1,7 @@
 // Profile Screen for Sailing AI
 // User account management and settings
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -11,9 +11,11 @@ import {
   Alert,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
+import SavedRoutesModal from '../components/SavedRoutesModal';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
+  const [showRoutesModal, setShowRoutesModal] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -71,6 +73,24 @@ export default function ProfileScreen() {
           <Text style={styles.infoValue}>{user?.name || 'N/A'}</Text>
         </View>
       </View>
+
+      {/* Saved Routes Button */}
+      <View style={styles.section}>
+        <TouchableOpacity
+          style={styles.viewRoutesButton}
+          onPress={() => setShowRoutesModal(true)}
+          accessibilityLabel="View saved routes"
+          title="View and manage your saved routes"
+        >
+          <Text style={styles.viewRoutesButtonText}>View Saved Routes</Text>
+        </TouchableOpacity>
+      </View>
+
+      <SavedRoutesModal
+        visible={showRoutesModal}
+        onClose={() => setShowRoutesModal(false)}
+        userId={user?.id}
+      />
 
       {/* App Info */}
       <View style={styles.section}>
@@ -138,7 +158,7 @@ export default function ProfileScreen() {
       {/* Footer */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          Made with ❤️ for sailors
+          Sail with ❤️ for sailors
         </Text>
         <Text style={styles.footerSubtext}>
           © 2025 Sailing AI. All rights reserved.
@@ -266,6 +286,91 @@ const styles = StyleSheet.create({
   logoutButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  viewRoutesButton: {
+    backgroundColor: '#0066CC',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+  },
+  viewRoutesButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16,
+  },
+  modalScroll: {
+    maxHeight: 400,
+  },
+  closeModalButton: {
+    backgroundColor: '#666',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  closeModalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  emptyRoutesText: {
+    fontSize: 13,
+    color: '#999',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 12,
+  },
+  routeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  routeInfo: {
+    flex: 1,
+  },
+  routeName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  routeMeta: {
+    fontSize: 12,
+    color: '#888',
+  },
+  deleteRouteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFEBEE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  deleteRouteText: {
+    fontSize: 14,
+    color: '#FF5252',
     fontWeight: 'bold',
   },
   footer: {

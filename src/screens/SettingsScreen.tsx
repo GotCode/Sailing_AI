@@ -13,10 +13,12 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getWindyService, initializeWindyService } from '../services/windyService';
+import { StormHandlingConfig } from '../types/sailing';
 
 const WINDY_API_KEY_STORAGE = 'windy_api_key';
 export const ROUTE_FORMAT_STORAGE = 'route_format';
 export const ARRIVAL_TIME_WINDOW_STORAGE = 'arrival_time_window_enabled';
+export const STORM_HANDLING_CONFIG_STORAGE = 'storm_handling_config';
 
 export type RouteFormat = 'GPX' | 'KML' | 'KMZ' | 'CSV';
 
@@ -34,11 +36,18 @@ const SettingsScreen: React.FC = () => {
   const [validationStatus, setValidationStatus] = useState<'none' | 'valid' | 'invalid'>('none');
   const [isSaving, setIsSaving] = useState(false);
   const [selectedRouteFormat, setSelectedRouteFormat] = useState<RouteFormat>('GPX');
+  const [stormConfig, setStormConfig] = useState<StormHandlingConfig>({
+    hasParachuteSeaAnchor: false,
+    hasJordanSeriesDrogue: false,
+    autopilotReliable: true,
+    defaultSeaRoomNm: 50,
+  });
 
   // Load saved settings on mount
   useEffect(() => {
     loadSavedApiKey();
     loadRouteFormat();
+    loadStormConfig();
   }, []);
 
   const loadRouteFormat = async () => {
@@ -58,6 +67,26 @@ const SettingsScreen: React.FC = () => {
       setSelectedRouteFormat(format);
     } catch (err) {
       Alert.alert('Error', 'Failed to save route format preference');
+    }
+  };
+
+  const loadStormConfig = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(STORM_HANDLING_CONFIG_STORAGE);
+      if (stored) {
+        setStormConfig(JSON.parse(stored));
+      }
+    } catch (err) {
+      console.error('Failed to load storm config:', err);
+    }
+  };
+
+  const saveStormConfig = async (updated: StormHandlingConfig) => {
+    try {
+      setStormConfig(updated);
+      await AsyncStorage.setItem(STORM_HANDLING_CONFIG_STORAGE, JSON.stringify(updated));
+    } catch (err) {
+      Alert.alert('Error', 'Failed to save storm handling configuration');
     }
   };
 
@@ -296,6 +325,76 @@ const SettingsScreen: React.FC = () => {
         </Text>
       </View>
 
+      {/* Storm Handling Equipment */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>⛈️ Storm Handling Equipment</Text>
+        <Text style={styles.description}>
+          Configure your Lagoon 440's heavy weather equipment. This determines which storm tactics
+          (heave-to vs. run off) the route planner will recommend for each waypoint.
+        </Text>
+
+        <View style={styles.stormToggleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.stormLabel}>Parachute Sea Anchor</Text>
+            <Text style={styles.stormHint}>Bow-deployed for heave-to stability</Text>
+          </View>
+          <Switch
+            value={stormConfig.hasParachuteSeaAnchor}
+            onValueChange={(v) => saveStormConfig({ ...stormConfig, hasParachuteSeaAnchor: v })}
+            trackColor={{ false: '#DDD', true: '#0066CC' }}
+          />
+        </View>
+
+        <View style={styles.stormToggleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.stormLabel}>Jordan Series Drogue</Text>
+            <Text style={styles.stormHint}>Stern drogue for speed control when running off</Text>
+          </View>
+          <Switch
+            value={stormConfig.hasJordanSeriesDrogue}
+            onValueChange={(v) => saveStormConfig({ ...stormConfig, hasJordanSeriesDrogue: v })}
+            trackColor={{ false: '#DDD', true: '#0066CC' }}
+          />
+        </View>
+
+        <View style={styles.stormToggleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.stormLabel}>Autopilot Reliable in Heavy Weather</Text>
+            <Text style={styles.stormHint}>Can the autopilot hold course in storm conditions?</Text>
+          </View>
+          <Switch
+            value={stormConfig.autopilotReliable}
+            onValueChange={(v) => saveStormConfig({ ...stormConfig, autopilotReliable: v })}
+            trackColor={{ false: '#DDD', true: '#0066CC' }}
+          />
+        </View>
+
+        <View style={styles.configRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.stormLabel}>Default Sea Room (nm)</Text>
+            <Text style={styles.stormHint}>Available distance downwind before land</Text>
+          </View>
+          <TextInput
+            style={styles.input}
+            value={stormConfig.defaultSeaRoomNm.toString()}
+            onChangeText={(text) => {
+              const nm = parseInt(text) || 50;
+              saveStormConfig({ ...stormConfig, defaultSeaRoomNm: Math.max(5, nm) });
+            }}
+            keyboardType="numeric"
+          />
+        </View>
+
+        <View style={styles.stormInfoBox}>
+          <Text style={styles.stormInfoTitle}>Lagoon 440 Storm Tactics</Text>
+          <Text style={styles.stormInfoText}>
+            <Text style={{ fontWeight: '600' }}>Heave-To</Text> (up to 35–45 kts): Back storm jib, deep reef main, wheel to windward. Creates protective wave slick. Best when sea room is limited or crew needs rest.{'\n\n'}
+            <Text style={{ fontWeight: '600' }}>Run Off</Text> (45+ kts / survival): Run downwind with Jordan Series Drogue for speed control. Requires ample sea room. Without a drogue, high windage can cause uncontrolled surfing.{'\n\n'}
+            <Text style={{ fontWeight: '600' }}>Critical:</Text> If bridge deck slamming becomes violent during heave-to, turn downwind immediately. Remove bimini/flybridge enclosures to reduce windage.
+          </Text>
+        </View>
+      </View>
+
       {/* Help Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>How to Get Your API Key</Text>
@@ -517,6 +616,48 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginTop: 2,
+  },
+  stormToggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+    paddingVertical: 6,
+  },
+  stormLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  stormHint: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 2,
+  },
+  stormInfoBox: {
+    backgroundColor: '#FFF3E0',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+  },
+  stormInfoTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#E65100',
+    marginBottom: 6,
+  },
+  stormInfoText: {
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 18,
+  },
+  configRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
 });
 

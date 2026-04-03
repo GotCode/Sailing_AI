@@ -28,15 +28,17 @@ import {
   Route,
 } from '../types/sailing';
 import { recommendSailConfiguration } from '../utils/sailingCalculations';
+import { getReefingRecommendation } from '../data/lagoon440Polar';
 import { getWindyService } from '../services/windyService';
-import { planRoute, fetchRouteCorridorWeather } from '../services/routePlanningService';
+import { planRoute, fetchRouteCorridorWeather, replanRouteForStorm } from '../services/routePlanningService';
 import SailConfigDisplay from '../components/SailConfigDisplay';
 import ErrorPanel from '../components/ErrorPanel';
 import SailingRose from '../components/SailingRose';
 import RouteMapView from '../components/RouteMapView';
+import SavedRoutesModal from '../components/SavedRoutesModal';
 import { useAuth } from '../contexts/AuthContext';
 import { simulationService, SimulatedWeather, StormAlert } from '../services/simulationService';
-import { getWeatherMonitoringService } from '../services/weatherMonitoringService';
+import { getWeatherMonitoringService, WeatherAlert } from '../services/weatherMonitoringService';
 import {
   validateWindSpeed,
   validateTWA,
@@ -44,7 +46,7 @@ import {
   validateLongitude,
   sanitizeNumericInput,
 } from '../utils/validation';
-import { parseLocationInput, getCoordinateFormatExamples } from '../utils/coordinateParser';
+import { parseLocationInput, getCoordinateFormatExamples, formatCoordsDM } from '../utils/coordinateParser';
 import { ARRIVAL_TIME_WINDOW_STORAGE } from './SettingsScreen';
 import {
   useResponsiveDimensions,
@@ -118,12 +120,21 @@ const SailingScreenEnhanced: React.FC = () => {
   // ===== Storm Reroute State =====
   const [showRerouteDialog, setShowRerouteDialog] = useState(false);
   const [pendingReroute, setPendingReroute] = useState<Route | null>(null);
+  const [rerouteDeviationHours, setRerouteDeviationHours] = useState(0);
+  const [rerouteAlertSummary, setRerouteAlertSummary] = useState('');
+  const [stormHandlingAlerts, setStormHandlingAlerts] = useState<WeatherAlert[]>([]);
+  const [showStormAlert, setShowStormAlert] = useState(false);
 
   // ===== Date Picker State =====
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
   const [pickerMonth, setPickerMonth] = useState(new Date().getMonth() + 1);
   const [pickerDay, setPickerDay] = useState(new Date().getDate());
+
+  // ===== Weather Alert State =====
+  const [showWeatherAlert, setShowWeatherAlert] = useState(false);
+  const [currentWeatherAlert, setCurrentWeatherAlert] = useState<any>(null);
+  const weatherAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ===== Auto-close weather alert after 30 seconds =====
   useEffect(() => {
@@ -609,7 +620,7 @@ const SailingScreenEnhanced: React.FC = () => {
           setTrackingPosition(newPosition);
           setCurrentPosition(newPosition);
           setStatusMessage(
-            `Tracking: ${newPosition.latitude.toFixed(4)}°N, ${Math.abs(newPosition.longitude).toFixed(4)}°W`
+            `Tracking: ${formatCoordsDM(newPosition.latitude, newPosition.longitude)}`
           );
         }
       );
@@ -888,15 +899,93 @@ const SailingScreenEnhanced: React.FC = () => {
     }
   };
 
+  // ===== Storm Detection Handler =====
+  // Called by weatherMonitoringService when storm conditions are detected
+  const handleStormDetected = async (alerts: WeatherAlert[], affectedWaypoints: Waypoint[]) => {
+    setStormHandlingAlerts(alerts);
+    setShowStormAlert(true);
+
+    // If we have a current route, trigger re-plan
+    if (plannedRoute && startPoint.latitude !== 0 && destination.latitude !== 0) {
+      try {
+        let threshold = 3;
+        try {
+          const storedThreshold = await AsyncStorage.getItem('engineWindThreshold');
+          if (storedThreshold) threshold = parseFloat(storedThreshold);
+        } catch (_) {}
+
+        let ensureDaytimeArrival = true;
+        try {
+          const setting = await AsyncStorage.getItem(ARRIVAL_TIME_WINDOW_STORAGE);
+          ensureDaytimeArrival = setting === null ? true : setting === 'true';
+        } catch (_) {}
+
+        const config: RoutePlanningConfig = {
+          startPoint,
+          destination,
+          sailingMode,
+          windThreshold: threshold,
+          avoidStorms: true,
+          ensureDaytimeArrival,
+          maxDailyDistance: 150,
+          preferredWaypointInterval: 50,
+          startDate: new Date(startDate),
+        };
+
+        const result = await replanRouteForStorm(plannedRoute, config, affectedWaypoints);
+
+        if (result.requiresConfirmation) {
+          // >24hr deviation — require user acceptance
+          setPendingReroute(result.newRoute);
+          setRerouteDeviationHours(result.deviationHours);
+          setRerouteAlertSummary(result.stormAlertSummary);
+          setShowRerouteDialog(true);
+        } else {
+          // <=24hr deviation — auto-apply
+          setPlannedRoute(result.newRoute);
+          AsyncStorage.setItem('activeRoute', JSON.stringify(result.newRoute));
+          setStatusMessage(`Route updated for storm (${result.deviationHours.toFixed(1)}h change)`);
+        }
+      } catch (err) {
+        console.error('Storm re-route failed:', err);
+      }
+    }
+  };
+
+  // ===== Accept Storm Reroute =====
+  const acceptStormReroute = () => {
+    if (pendingReroute) {
+      setPlannedRoute(pendingReroute);
+      AsyncStorage.setItem('activeRoute', JSON.stringify(pendingReroute));
+      setStatusMessage(`Storm reroute accepted (${rerouteDeviationHours.toFixed(1)}h deviation)`);
+    }
+    setShowRerouteDialog(false);
+    setPendingReroute(null);
+  };
+
+  // ===== Reject Storm Reroute =====
+  const rejectStormReroute = () => {
+    setShowRerouteDialog(false);
+    setPendingReroute(null);
+    setStatusMessage('Storm reroute declined — keeping current route');
+  };
+
+  // ===== Register storm callback with weather monitoring service =====
+  useEffect(() => {
+    const weatherService = getWeatherMonitoringService();
+    weatherService.setOnStormDetected(handleStormDetected);
+    return () => {
+      weatherService.setOnStormDetected(() => {});
+    };
+  }, [plannedRoute, startPoint, destination, sailingMode, startDate]);
+
   // ===== Use Current Location =====
   const useCurrentLocationForStart = () => {
     if (currentPosition.latitude !== 0) {
       const gpsFormat = `${currentPosition.latitude.toFixed(6)}, ${currentPosition.longitude.toFixed(6)}`;
       setStartInput(gpsFormat);
       setStartPoint(currentPosition);
-      setDestInput(gpsFormat);
-      setDestination(currentPosition);
-      setStatusMessage('GPS location set for both start and end points');
+      setStatusMessage('GPS location set for start point');
     } else {
       Alert.alert('No GPS Data', 'Please enable location services');
     }
@@ -905,8 +994,8 @@ const SailingScreenEnhanced: React.FC = () => {
   // ===== Get sail config display string =====
   const getSailConfigString = (waypoint: Waypoint): string => {
     if (!waypoint.sailConfiguration) return 'N/A';
+    if (waypoint.useEngine) return '🔧 Use Engine';
     const config = waypoint.sailConfiguration;
-    // Format: Sail type + trim angle to AWA
     const trimAngle = waypoint.weatherForecast ? Math.abs(waypoint.weatherForecast.direction - 45) : 0;
     return `${config} @ ${trimAngle.toFixed(0)}° AWA`;
   };
@@ -932,7 +1021,7 @@ const SailingScreenEnhanced: React.FC = () => {
 
     const timeStr = totalDays > 0 ? `${totalDays} days ${totalHours} hours` : `${totalHours} hours`;
 
-    return `Navigation Route from ${start.name} To ${end.name}, ${totalMiles.toFixed(1)} miles in ${timeStr}`;
+    return `Auto Planning Route`;
   };
 
   return (
@@ -1016,25 +1105,16 @@ const SailingScreenEnhanced: React.FC = () => {
           <View style={[styles.pointContainer, dims.isMobile ? { flex: 1 } : { flex: 1 }]}>
             <View style={styles.labelRow}>
               <Text style={[styles.label, { fontSize: selectByDevice(responsiveValues.fontSize.subtitle, dims.deviceType) }]}>
-                Starting Point
+                Start Point
               </Text>
             </View>
             <View style={[styles.labelButtons, { flexWrap: dims.isMobile ? 'wrap' : 'nowrap' }]}>
               <TouchableOpacity
-                onPress={showCoordinateFormatHelp}
-                style={[styles.helpButton, dims.isTablet && { flex: 0.3 }]}
-                accessibilityLabel="Help"
-                accessibilityHint="Show coordinate format help and examples"
-                title="Show coordinate format examples and help"
-              >
-                <Text style={styles.helpButtonText}>?</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
                 onPress={useCurrentLocationForStart}
                 style={[styles.gpsButton, dims.isTablet && { flex: 0.4 }]}
-                accessibilityLabel="Use GPS for both points"
-                accessibilityHint="Set both start and end points to current GPS location"
-                title="Set both start and end points to current GPS location"
+                accessibilityLabel="Use GPS for start point"
+                accessibilityHint="Set start point to current GPS location"
+                title="Set start point to current GPS location"
               >
                 <Text style={styles.gpsButtonText}>GPS</Text>
               </TouchableOpacity>
@@ -1057,7 +1137,7 @@ const SailingScreenEnhanced: React.FC = () => {
             />
             {startPoint.latitude !== 0 && (
               <Text style={[styles.coordDisplay, { fontSize: selectByDevice(responsiveValues.fontSize.small, dims.deviceType) }]}>
-                Parsed: {startPoint.latitude.toFixed(4)}°, {startPoint.longitude.toFixed(4)}°
+                Parsed: {formatCoordsDM(startPoint.latitude, startPoint.longitude)}
               </Text>
             )}
           </View>
@@ -1089,7 +1169,7 @@ const SailingScreenEnhanced: React.FC = () => {
             />
             {destination.latitude !== 0 && (
               <Text style={[styles.coordDisplay, { fontSize: selectByDevice(responsiveValues.fontSize.small, dims.deviceType) }]}>
-                Parsed: {destination.latitude.toFixed(4)}°, {destination.longitude.toFixed(4)}°
+                Parsed: {formatCoordsDM(destination.latitude, destination.longitude)}
               </Text>
             )}
           </View>
@@ -1361,6 +1441,7 @@ const SailingScreenEnhanced: React.FC = () => {
               configuration={sailRecommendation.configuration}
               expectedSpeed={sailRecommendation.expectedSpeed}
               description={sailRecommendation.description}
+              reefingAdvice={sailRecommendation.reefingAdvice}
             />
           </View>
         )}
@@ -1556,7 +1637,7 @@ const SailingScreenEnhanced: React.FC = () => {
             <View style={styles.weatherAlertLocation}>
               <Text style={styles.weatherAlertLocationIcon}>📍</Text>
               <Text style={styles.weatherAlertLocationText}>
-                GPS Location: {currentWeatherAlert?.location?.latitude?.toFixed(4)}°N, {Math.abs(currentWeatherAlert?.location?.longitude || 0).toFixed(4)}°W
+                GPS Location: {currentWeatherAlert?.location ? formatCoordsDM(currentWeatherAlert.location.latitude, currentWeatherAlert.location.longitude) : 'Unknown'}
               </Text>
             </View>
 
@@ -1565,7 +1646,7 @@ const SailingScreenEnhanced: React.FC = () => {
               <View style={styles.weatherAlertLocation}>
                 <Text style={styles.weatherAlertLocationIcon}>🚤</Text>
                 <Text style={styles.weatherAlertLocationText}>
-                  Your Position: {currentPosition.latitude.toFixed(4)}°N, {Math.abs(currentPosition.longitude).toFixed(4)}°W
+                  Your Position: {formatCoordsDM(currentPosition.latitude, currentPosition.longitude)}
                 </Text>
               </View>
             )}
@@ -1609,7 +1690,7 @@ const SailingScreenEnhanced: React.FC = () => {
           {plannedRoute && (
             <>
               <Text style={styles.routeInfo}>
-                {plannedRoute.name} - {plannedRoute.waypoints.length} waypoints
+                {plannedRoute.name}
               </Text>
 
               <FlatList
@@ -1620,9 +1701,12 @@ const SailingScreenEnhanced: React.FC = () => {
                     <View style={styles.waypointHeader}>
                       <Text style={styles.waypointName}>{item.name}</Text>
                       {item.useEngine && <Text style={styles.engineBadge}>ENGINE</Text>}
+                      {item.usePreventer && (
+                        <Text style={[styles.engineBadge, { backgroundColor: '#E65100' }]}>🔗 PREVENTER</Text>
+                      )}
                     </View>
                     <Text style={styles.waypointCoords}>
-                      {item.coordinates.latitude.toFixed(4)}°, {item.coordinates.longitude.toFixed(4)}°
+                      {formatCoordsDM(item.coordinates.latitude, item.coordinates.longitude)}
                     </Text>
 
                     {/* Wind and Weather Info */}
@@ -1662,6 +1746,70 @@ const SailingScreenEnhanced: React.FC = () => {
                     <Text style={styles.waypointSail}>
                       Sail: {getSailConfigString(item)}
                     </Text>
+                    <Text style={styles.waypointSail}>
+                      🧭 COG: {item.cog != null ? `${item.cog.toFixed(0)}°` : 'N/A'}
+                    </Text>
+                    <Text style={styles.waypointSail}>
+                      📏 {index < plannedRoute.waypoints.length - 1 && item.legDistance ? `${item.legDistance.toFixed(1)} nm to next waypoint` : '0 nm'}
+                    </Text>
+                    {/* Reefing recommendation */}
+                    {!item.useEngine && item.weatherForecast && item.weatherForecast.windSpeed >= 15 && (() => {
+                      const { mainReef, headsailReef } = getReefingRecommendation(item.weatherForecast!.windSpeed);
+                      return (
+                        <Text style={[styles.waypointSail, { color: item.weatherForecast!.windSpeed >= 25 ? '#D32F2F' : item.weatherForecast!.windSpeed >= 20 ? '#E65100' : '#F57F17' }]}>
+                          ⛵ Reef: {mainReef.label} + {headsailReef.label}
+                        </Text>
+                      );
+                    })()}
+                    {/* Preventer recommendation */}
+                    {item.usePreventer && (
+                      <View style={{ backgroundColor: '#FFF3E0', padding: 6, borderRadius: 4, marginTop: 4 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#E65100' }}>
+                          🔗 USE PREVENTER
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#BF360C', marginTop: 2 }}>
+                          {item.preventerReason}
+                        </Text>
+                      </View>
+                    )}
+                    {/* Throttle indicator — speed reduced for daylight arrival */}
+                    {item.isThrottled && (
+                      <View style={{ backgroundColor: '#E3F2FD', padding: 6, borderRadius: 4, marginTop: 4 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#1565C0' }}>
+                          🐢 THROTTLED — {item.throttledSpeed?.toFixed(1)} kts
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#0D47A1', marginTop: 2 }}>
+                          Speed reduced to ensure daylight arrival at destination
+                        </Text>
+                      </View>
+                    )}
+                    {/* Heave-To indicator — waiting for daylight */}
+                    {item.isHeaveTo && (
+                      <View style={{ backgroundColor: '#F3E5F5', padding: 6, borderRadius: 4, marginTop: 4 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#6A1B9A' }}>
+                          ⚓ HEAVE-TO — Waiting {item.heaveToWaitHours?.toFixed(1)}h for daylight
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#4A148C', marginTop: 2 }}>
+                          Boat heaves-to here until daylight, then sails remaining distance at full speed
+                        </Text>
+                      </View>
+                    )}
+                    {/* Storm handling recommendation */}
+                    {item.stormHandling && item.stormHandling.severity !== 'normal' && (
+                      <View style={{ backgroundColor: item.stormHandling.severity === 'danger' ? '#FFEBEE' : '#FFF8E1', padding: 8, borderRadius: 6, marginTop: 4, borderLeftWidth: 3, borderLeftColor: item.stormHandling.severity === 'danger' ? '#D32F2F' : '#F57C00' }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: item.stormHandling.severity === 'danger' ? '#B71C1C' : '#E65100' }}>
+                          ⛈️ {item.stormHandling.label}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#555', marginTop: 3 }}>
+                          {item.stormHandling.reason}
+                        </Text>
+                        {item.stormHandling.details.slice(0, 3).map((detail, dIdx) => (
+                          <Text key={dIdx} style={{ fontSize: 10, color: '#777', marginTop: 2 }}>
+                            • {detail}
+                          </Text>
+                        ))}
+                      </View>
+                    )}
                     {item.estimatedArrival && (
                       <Text style={styles.waypointEta}>
                         {index === 0 ? 'Depart time:' : index === plannedRoute.waypoints.length - 1 ? '(ETA) Arrival time:' : 'ETA:'} {new Date(item.estimatedArrival).toLocaleString()}
@@ -1680,11 +1828,9 @@ const SailingScreenEnhanced: React.FC = () => {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.button, styles.saveButton]}
-                  onPress={() => {
-                    if (plannedRoute) saveRouteToProfile(plannedRoute);
-                  }}
+                  onPress={() => setShowWaypointsModal(false)}
                 >
-                  <Text style={styles.buttonText}>Save to Profile</Text>
+                  <Text style={styles.buttonText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -1693,65 +1839,108 @@ const SailingScreenEnhanced: React.FC = () => {
       </Modal>
 
       {/* ===== SAVED ROUTES MODAL ===== */}
-      <Modal
+      <SavedRoutesModal
         visible={showSavedRoutesModal}
-        animationType="slide"
-        onRequestClose={() => setShowSavedRoutesModal(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Saved Routes</Text>
-            <TouchableOpacity onPress={() => setShowSavedRoutesModal(false)}>
-              <Text style={styles.closeButton}>✕</Text>
-            </TouchableOpacity>
+        onClose={() => setShowSavedRoutesModal(false)}
+        userId={user?.id}
+        onLoadRoute={(route) => {
+          loadRouteFromProfile(route);
+        }}
+      />
+
+      {/* ===== STORM ALERT MODAL ===== */}
+      <Modal visible={showStormAlert} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: '#FFF', borderRadius: 12, maxHeight: '80%' }}>
+            <View style={{ backgroundColor: '#B71C1C', padding: 16, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+              <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>⛈️ STORM CONDITIONS DETECTED</Text>
+              <Text style={{ color: '#FFCDD2', fontSize: 13, marginTop: 4 }}>Lagoon 440 Heavy Weather Handling</Text>
+            </View>
+            <ScrollView style={{ padding: 16, maxHeight: 400 }}>
+              {stormHandlingAlerts.map((alert, idx) => (
+                <View key={idx} style={{ marginBottom: 16, padding: 12, backgroundColor: alert.severity === 'critical' ? '#FFEBEE' : '#FFF3E0', borderRadius: 8, borderLeftWidth: 4, borderLeftColor: alert.severity === 'critical' ? '#D32F2F' : '#F57C00' }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#333' }}>
+                    {alert.stormHandling?.label || 'STORM'}
+                  </Text>
+                  <Text style={{ fontSize: 13, color: '#555', marginTop: 4 }}>
+                    {alert.stormHandling?.reason || alert.message}
+                  </Text>
+                  {alert.stormHandling?.details && alert.stormHandling.details.length > 0 && (
+                    <View style={{ marginTop: 8 }}>
+                      {alert.stormHandling.details.map((detail, dIdx) => (
+                        <Text key={dIdx} style={{ fontSize: 12, color: '#666', marginTop: 2 }}>
+                          • {detail}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+            <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#EEE' }}>
+              <TouchableOpacity
+                style={{ backgroundColor: '#D32F2F', padding: 14, borderRadius: 8, alignItems: 'center' }}
+                onPress={() => setShowStormAlert(false)}
+              >
+                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 15 }}>Acknowledged</Text>
+              </TouchableOpacity>
+            </View>
           </View>
+        </View>
+      </Modal>
 
-          {savedRoutes.length === 0 ? (
-            <Text style={styles.noRoutesText}>No saved routes yet. Save a route using the "Save Route to Profile" button.</Text>
-          ) : (
-            <FlatList
-              data={savedRoutes}
-              keyExtractor={(item, index) => `route-${index}`}
-              renderItem={({ item, index }) => {
-                const savedDate = item.updatedAt || item.createdAt;
-                const dateStr = savedDate
-                  ? new Date(savedDate).toLocaleDateString(undefined, {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric',
-                    })
-                  : 'Unknown date';
+      {/* ===== STORM REROUTE CONFIRMATION MODAL (>24hr deviation) ===== */}
+      <Modal visible={showRerouteDialog} transparent animationType="slide">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: '#FFF', borderRadius: 12, maxHeight: '85%' }}>
+            <View style={{ backgroundColor: '#E65100', padding: 16, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+              <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>⚠️ ROUTE CHANGE REQUIRED</Text>
+              <Text style={{ color: '#FFE0B2', fontSize: 13, marginTop: 4 }}>
+                New route deviates more than 24 hours — your approval is needed
+              </Text>
+            </View>
+            <ScrollView style={{ padding: 16, maxHeight: 350 }}>
+              <View style={{ backgroundColor: '#FFF3E0', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#E65100' }}>
+                  Time Deviation: {rerouteDeviationHours.toFixed(1)} hours
+                </Text>
+                <Text style={{ fontSize: 12, color: '#BF360C', marginTop: 4 }}>
+                  Sailing Mode: {sailingMode.charAt(0).toUpperCase() + sailingMode.slice(1)}
+                </Text>
+              </View>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#333', marginBottom: 8 }}>Storm Conditions:</Text>
+              <Text style={{ fontSize: 12, color: '#555', lineHeight: 18 }}>{rerouteAlertSummary}</Text>
 
-                // Generate route label: <Start-End><date>
-                const startPoint = item.waypoints[0];
-                const endPoint = item.waypoints[item.waypoints.length - 1];
-                const startCoords = startPoint ? `${startPoint.coordinates.latitude.toFixed(2)}°, ${startPoint.coordinates.longitude.toFixed(2)}°` : 'Unknown';
-                const endCoords = endPoint ? `${endPoint.coordinates.latitude.toFixed(2)}°, ${endPoint.coordinates.longitude.toFixed(2)}°` : 'Unknown';
-                const routeLabel = `route <${startCoords}-${endCoords}><${dateStr}>`;
-
-                return (
-                  <View style={styles.savedRouteItem}>
-                    <TouchableOpacity
-                      style={styles.savedRouteContent}
-                      onPress={() => loadRouteFromProfile(item)}
-                    >
-                      <Text style={styles.savedRouteName}>{routeLabel}</Text>
-                      <Text style={styles.savedRouteInfo}>
-                        {item.waypoints.length} waypoints
-                      </Text>
-                      <Text style={styles.savedRouteTimestamp}>{dateStr}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.deleteRouteButton}
-                      onPress={() => deleteRouteFromProfile(index)}
-                    >
-                      <Text style={styles.deleteRouteButtonText}>Delete</Text>
-                    </TouchableOpacity>
-                  </View>
-                );
-              }}
-            />
-          )}
+              {pendingReroute && (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#333', marginBottom: 6 }}>New Route Summary:</Text>
+                  <Text style={{ fontSize: 12, color: '#555' }}>
+                    {pendingReroute.waypoints.length} waypoints • {pendingReroute.name}
+                  </Text>
+                  {pendingReroute.waypoints.filter(wp => wp.stormHandling && wp.stormHandling.severity !== 'normal').map((wp, i) => (
+                    <View key={i} style={{ marginTop: 6, padding: 8, backgroundColor: wp.stormHandling?.severity === 'danger' ? '#FFEBEE' : '#FFF8E1', borderRadius: 6 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#333' }}>{wp.name}: {wp.stormHandling?.label}</Text>
+                      <Text style={{ fontSize: 11, color: '#666' }}>{wp.stormHandling?.reason}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+            <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#EEE', flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#E0E0E0', padding: 14, borderRadius: 8, alignItems: 'center' }}
+                onPress={rejectStormReroute}
+              >
+                <Text style={{ fontWeight: 'bold', color: '#333', fontSize: 14 }}>Keep Current Route</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#E65100', padding: 14, borderRadius: 8, alignItems: 'center' }}
+                onPress={acceptStormReroute}
+              >
+                <Text style={{ fontWeight: 'bold', color: '#FFF', fontSize: 14 }}>Accept New Route</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </ScrollView>

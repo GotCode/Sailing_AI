@@ -2,8 +2,10 @@
 // Supports: DD (Decimal Degrees), DDM (Degrees Decimal Minutes), DMS (Degrees Minutes Seconds), Plus Codes
 
 import * as Location from 'expo-location';
-import { decode as decodePlusCode, isValid as isValidPlusCode } from 'open-location-code';
+import { OpenLocationCode } from 'open-location-code';
 import { GPSCoordinates } from '../types/sailing';
+
+const olcCodec = new OpenLocationCode();
 
 /**
  * Parse coordinates in various formats:
@@ -16,8 +18,8 @@ import { GPSCoordinates } from '../types/sailing';
 export async function parseLocationInput(input: string): Promise<GPSCoordinates | null> {
   const trimmed = input.trim();
 
-  // Try Plus Code first (unique format)
-  const plusCodeResult = parsePlusCode(trimmed);
+  // Try Plus Code first (unique format) - may need geocoding for short codes
+  const plusCodeResult = await parsePlusCode(trimmed);
   if (plusCodeResult) return plusCodeResult;
 
   // Try DMS (most specific format)
@@ -154,20 +156,21 @@ function parseDMS(input: string): GPSCoordinates | null {
 /**
  * Parse Google Plus Code (Open Location Code)
  * Examples:
- * - 76QXQR6R+6P
- * - 76QXQR6R+6P Miami
- * - 76QX+QR Miami, FL
+ * - 76QXQR6R+6P (full code)
+ * - 76QXQR6R+6P Miami (full code with reference)
+ * - 4JGR+9QF Kien Luong, Kien Giang, Vietnam (short code with reference location)
+ * - 76QX+QR Miami, FL (short code with reference)
  */
-function parsePlusCode(input: string): GPSCoordinates | null {
-  // Extract potential plus code (8 or 10 characters with + sign)
-  const plusCodeMatch = input.match(/([23456789CFGHJMPQRVWX]{8}\+[23456789CFGHJMPQRVWX]{2,3})/i);
+async function parsePlusCode(input: string): Promise<GPSCoordinates | null> {
+  // Match full plus codes (8+ chars before +)
+  const fullCodeMatch = input.match(/([23456789CFGHJMPQRVWX]{8}\+[23456789CFGHJMPQRVWX]{2,3})/i);
 
-  if (plusCodeMatch) {
-    const code = plusCodeMatch[1].toUpperCase();
+  if (fullCodeMatch) {
+    const code = fullCodeMatch[1].toUpperCase();
 
     try {
-      if (isValidPlusCode(code)) {
-        const decoded = decodePlusCode(code);
+      if (olcCodec.isValid(code) && olcCodec.isFull(code)) {
+        const decoded = olcCodec.decode(code);
         const lat = decoded.latitudeCenter;
         const lon = decoded.longitudeCenter;
 
@@ -177,6 +180,36 @@ function parsePlusCode(input: string): GPSCoordinates | null {
       }
     } catch (err) {
       console.error('Plus code parsing error:', err);
+    }
+  }
+
+  // Match short plus codes (2-7 chars before +, followed by chars after +)
+  const shortCodeMatch = input.match(/([23456789CFGHJMPQRVWX]{2,7}\+[23456789CFGHJMPQRVWX]{2,3})\s+(.*)/i);
+
+  if (shortCodeMatch) {
+    const shortCode = shortCodeMatch[1].toUpperCase();
+    const referenceLocation = shortCodeMatch[2].trim();
+
+    try {
+      if (olcCodec.isValid(shortCode) && olcCodec.isShort(shortCode) && referenceLocation) {
+        // Geocode the reference location to get approximate coordinates
+        const refCoords = await geocodeLocation(referenceLocation);
+        if (refCoords) {
+          // Recover the full code using the reference coordinates
+          const fullCode = olcCodec.recoverNearest(shortCode, refCoords.latitude, refCoords.longitude);
+          if (olcCodec.isValid(fullCode)) {
+            const decoded = olcCodec.decode(fullCode);
+            const lat = decoded.latitudeCenter;
+            const lon = decoded.longitudeCenter;
+
+            if (isValidCoordinate(lat, lon)) {
+              return { latitude: lat, longitude: lon };
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Short plus code parsing error:', err);
     }
   }
 
@@ -231,6 +264,23 @@ export function formatToDDM(coords: GPSCoordinates): string {
   const lonHemi = coords.longitude >= 0 ? 'E' : 'W';
 
   return `${latDeg}°${latMin.toFixed(4)}'${latHemi}, ${lonDeg}°${lonMin.toFixed(4)}'${lonHemi}`;
+}
+
+/**
+ * Standard display format for coordinates across the app.
+ * Returns Degrees and Decimal Minutes in parentheses:
+ *   (10° 30.000'N, 106° 45.000'E)
+ */
+export function formatCoordsDM(lat: number, lon: number): string {
+  const latDeg = Math.floor(Math.abs(lat));
+  const latMin = (Math.abs(lat) - latDeg) * 60;
+  const latHemi = lat >= 0 ? 'N' : 'S';
+
+  const lonDeg = Math.floor(Math.abs(lon));
+  const lonMin = (Math.abs(lon) - lonDeg) * 60;
+  const lonHemi = lon >= 0 ? 'E' : 'W';
+
+  return `(${latDeg}° ${latMin.toFixed(3)}'${latHemi}, ${lonDeg}° ${lonMin.toFixed(3)}'${lonHemi})`;
 }
 
 /**

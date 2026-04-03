@@ -23,10 +23,12 @@ import {
   Route,
   Waypoint,
 } from '../types/sailing';
+import { useAuth } from '../contexts/AuthContext';
 import { parseGPX, generateRoute, getRouteFileExtension, getRouteMimeType } from '../utils/gpxHandler';
 import { validateDaylightArrival } from '../services/routePlanningService';
 import { formatToDDM } from '../utils/coordinateParser';
 import { calculateDistance, calculateBearing } from '../utils/sailingCalculations';
+import { getReefingRecommendation } from '../data/lagoon440Polar';
 import { ROUTE_FORMAT_STORAGE, RouteFormat } from './SettingsScreen';
 
 // Calculate route statistics from waypoints
@@ -72,6 +74,7 @@ const calculateRouteStatistics = (route: Route | null) => {
 };
 
 const RouteScreenEnhanced: React.FC = () => {
+  const { user } = useAuth();
   const [currentRoute, setCurrentRoute] = useState<Route | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingWaypoint, setEditingWaypoint] = useState<Waypoint | null>(null);
@@ -116,15 +119,43 @@ const RouteScreenEnhanced: React.FC = () => {
     }, [loadExportedRoute])
   );
 
-  // Sail configuration options
+  // Sail configuration options (including Lagoon 440 factory reefing points)
   const sailConfigurations = [
-    { id: 'main+jib', label: 'Main + Jib', config: { mainSail: true, jib: true, asymmetrical: false, spinnaker: false, codeZero: false, stormJib: false } },
-    { id: 'main+genoa', label: 'Main + Genoa', config: { mainSail: true, jib: true, asymmetrical: false, spinnaker: false, codeZero: false, stormJib: false } },
-    { id: 'asymmetrical', label: 'Asymmetrical Spinnaker', config: { mainSail: true, jib: false, asymmetrical: true, spinnaker: false, codeZero: false, stormJib: false } },
-    { id: 'spinnaker', label: 'Spinnaker', config: { mainSail: true, jib: false, asymmetrical: false, spinnaker: true, codeZero: false, stormJib: false } },
-    { id: 'codezero', label: 'Code Zero', config: { mainSail: false, jib: false, asymmetrical: false, spinnaker: false, codeZero: true, stormJib: false } },
-    { id: 'storm', label: 'Storm Jib + Reefed Main', config: { mainSail: true, jib: false, asymmetrical: false, spinnaker: false, codeZero: false, stormJib: true } },
+    { id: 'main+jib', label: 'Main + Jib', config: { mainSail: true, jib: true, asymmetrical: false, spinnaker: false, codeZero: false, stormJib: false, reefLevel: 0, headsailReef: 0 } },
+    { id: 'main+genoa', label: 'Main + Genoa', config: { mainSail: true, jib: true, asymmetrical: false, spinnaker: false, codeZero: false, stormJib: false, reefLevel: 0, headsailReef: 0 } },
+    { id: 'reef1', label: '1st Reef Main + Jib (15-20 kts)', config: { mainSail: true, jib: true, asymmetrical: false, spinnaker: false, codeZero: false, stormJib: false, reefLevel: 1, headsailReef: 0 } },
+    { id: 'reef1+headsail1', label: '1st Reef Main + Reefed Jib (18-22 kts)', config: { mainSail: true, jib: true, asymmetrical: false, spinnaker: false, codeZero: false, stormJib: false, reefLevel: 1, headsailReef: 1 } },
+    { id: 'reef2', label: '2nd Reef Main + Reefed Jib (20-25 kts)', config: { mainSail: true, jib: true, asymmetrical: false, spinnaker: false, codeZero: false, stormJib: false, reefLevel: 2, headsailReef: 1 } },
+    { id: 'reef3', label: 'Deep Reef Main + Heavy Reef Jib (25-30 kts)', config: { mainSail: true, jib: true, asymmetrical: false, spinnaker: false, codeZero: false, stormJib: false, reefLevel: 3, headsailReef: 2 } },
+    { id: 'asymmetrical', label: 'Asymmetrical Spinnaker', config: { mainSail: true, jib: false, asymmetrical: true, spinnaker: false, codeZero: false, stormJib: false, reefLevel: 0, headsailReef: 0 } },
+    { id: 'spinnaker', label: 'Spinnaker', config: { mainSail: true, jib: false, asymmetrical: false, spinnaker: true, codeZero: false, stormJib: false, reefLevel: 0, headsailReef: 0 } },
+    { id: 'codezero', label: 'Code Zero', config: { mainSail: false, jib: false, asymmetrical: false, spinnaker: false, codeZero: true, stormJib: false, reefLevel: 0, headsailReef: 0 } },
+    { id: 'storm', label: 'Storm Jib + Deep Reef Main (30+ kts)', config: { mainSail: true, jib: false, asymmetrical: false, spinnaker: false, codeZero: false, stormJib: true, reefLevel: 3, headsailReef: 3 } },
   ];
+
+  const saveRouteToProfile = async () => {
+    if (!currentRoute || currentRoute.waypoints.length === 0) {
+      Alert.alert('No Route', 'Please create or import a route first.');
+      return;
+    }
+    try {
+      const storageKey = `routes_${user?.id || 'guest'}`;
+      const stored = await AsyncStorage.getItem(storageKey);
+      const existingRoutes: Route[] = stored ? JSON.parse(stored) : [];
+      const updatedRoute = { ...currentRoute, updatedAt: new Date() };
+      const existingIndex = existingRoutes.findIndex(r => r.id === currentRoute.id);
+      if (existingIndex >= 0) {
+        existingRoutes[existingIndex] = updatedRoute;
+      } else {
+        existingRoutes.push(updatedRoute);
+      }
+      await AsyncStorage.setItem(storageKey, JSON.stringify(existingRoutes));
+      setCurrentRoute(updatedRoute);
+      Alert.alert('Success', `Route "${currentRoute.name}" has been saved to your profile.`);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to save route to profile.');
+    }
+  };
 
   const handleImportGPX = async () => {
     try {
@@ -527,6 +558,11 @@ const RouteScreenEnhanced: React.FC = () => {
           <Text style={[styles.modeIndicator, item.useEngine ? styles.engineIndicator : styles.sailIndicator]}>
             {item.useEngine ? '⚙️' : '⛵'}
           </Text>
+          {item.usePreventer && (
+            <View style={{ backgroundColor: '#E65100', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 4 }}>
+              <Text style={{ color: '#FFF', fontSize: 9, fontWeight: '700' }}>PREVENTER</Text>
+            </View>
+          )}
         </View>
 
         {/* Data Grid */}
@@ -639,6 +675,30 @@ const RouteScreenEnhanced: React.FC = () => {
           )}
         </View>
 
+        {/* Reefing Recommendation */}
+        {!item.useEngine && details.windSpeed >= 15 && (() => {
+          const { mainReef, headsailReef } = getReefingRecommendation(details.windSpeed);
+          return (
+            <View style={[styles.warningBox, { backgroundColor: details.windSpeed >= 25 ? '#FFCCCC' : details.windSpeed >= 20 ? '#FFE0B2' : '#FFF9C4' }]}>
+              <Text style={styles.warningText}>
+                ⛵ Reef: {mainReef.label} + {headsailReef.label} ({details.windSpeed.toFixed(0)} kts)
+              </Text>
+            </View>
+          );
+        })()}
+
+        {/* Preventer Recommendation */}
+        {item.usePreventer && (
+          <View style={[styles.warningBox, { backgroundColor: '#FFF3E0', borderLeftWidth: 4, borderLeftColor: '#E65100' }]}>
+            <Text style={[styles.warningText, { color: '#E65100', fontWeight: '700' }]}>
+              🔗 USE PREVENTER
+            </Text>
+            <Text style={[styles.warningText, { color: '#BF360C', fontSize: 11, marginTop: 2 }]}>
+              {item.preventerReason}
+            </Text>
+          </View>
+        )}
+
         {/* Warning for night arrival */}
         {!daylightCheck.isValid && 'message' in daylightCheck && (
           <View style={styles.warningBox}>
@@ -695,7 +755,7 @@ const RouteScreenEnhanced: React.FC = () => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Route Review & Edit</Text>
         <Text style={styles.headerSubtitle}>
-          {currentRoute ? `${currentRoute.waypoints.length} waypoints` : 'No active route'}
+          {currentRoute ? `Route: ${currentRoute.name}` : 'No active route'}
         </Text>
         {currentRoute?.startDate && (
           <Text style={styles.headerSubtitle}>
@@ -752,6 +812,16 @@ const RouteScreenEnhanced: React.FC = () => {
           accessibilityLabel="Export the current route to a GPX file" title="Export the current route to a GPX file"
         >
           <Text style={styles.buttonText}>Export</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.saveProfileButton, (!currentRoute || currentRoute.waypoints.length === 0) && styles.buttonDisabled]}
+          onPress={saveRouteToProfile}
+          disabled={!currentRoute || currentRoute.waypoints.length === 0}
+          accessibilityLabel="Save the planned route to your profile"
+          title="Save the planned route to your profile"
+        >
+          <Text style={styles.buttonText}>Save to Profile</Text>
         </TouchableOpacity>
       </View>
 
@@ -909,6 +979,13 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     backgroundColor: '#CCC',
+  },
+  saveProfileButton: {
+    flex: 1,
+    backgroundColor: '#FF9800',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
   },
   buttonText: {
     color: '#FFFFFF',

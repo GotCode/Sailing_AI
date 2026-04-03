@@ -56,42 +56,49 @@
 
 **Primary Purpose:** Route planning, weather data management, sailing recommendations
 
+**Screen Title:** "Sailing AI"
+
 #### Major Sections:
 
-**A. Route Planning**
+**A. Sailing Mode** *(Top of screen)*
+- Sailing Mode selector (moved to top for easier access)
+- Engine vs. Sail mode configuration
+
+**B. Route Planning**
 - Starting Point input (GPS, Manual, Map)
 - End Point input (Map selection)
-- Start Date (YYYY-MM-DD format)
+- Start Date (calendar dialog picker)
 - Reverse Route button
 - Save Route to Profile option
 
-**B. Sailing Data**
+**C. Sailing Data**
 - Wind Speed input (knots)
 - True Wind Angle input (degrees)
 - Get Wind Forecast button (Windy.com)
 - Wind forecast display (speed, direction, gusts)
 
-**C. Route Planning & Simulation**
+**D. Route Planning & Simulation**
 - Plan Route button → generates waypoints
 - Load Simulation Route (demo)
-- Simulation toggle (Real GPS vs. Simulation)
-- Start/Stop Simulation buttons
+- Simulation toggle (Realtime vs. Simulation)
+- Start/Stop Route buttons (changed from "Start Real Tracking")
 - Simulation status display
+- Initial notification when starting with weather monitoring enabled
 
-**D. Map View**
+**E. Map View**
 - Visual route representation
 - Waypoint markers
 - Storm/hazard locations
 - Current position indicator
 - Zoom controls
 
-**E. Waypoint Details**
+**F. Waypoint Details**
 - Expandable waypoint cards
 - Weather information at each point
 - Tide/current data
 - Sail configuration
 
-**F. Sail Recommendations**
+**G. Sail Recommendations**
 - Automatic sail config calculation
 - Expected boat speed
 - Trim recommendations
@@ -99,9 +106,12 @@
 **Key Features:**
 - ✓ Responsive design (mobile/tablet/desktop)
 - ✓ Google Maps integration
-- ✓ Consolidated "Open Map" button
+- ✓ Consolidated "Open Map" button (same size)
+- ✓ Calendar date picker for Start Date
 - ✓ Real-time weather fetch
 - ✓ Simulation with storm alerts
+- ✓ Button hover prompts for better UX
+- ✓ GPS format conversion for coordinates
 
 **Data Inputs Required:**
 - Coordinates (decimal or DMS format)
@@ -122,13 +132,15 @@
 
 **Primary Purpose:** Detailed route management and waypoint editing
 
+**Screen Title:** "Route Review & Edit"
+
 #### Major Functions:
 
 **A. Route Information Display**
-- Route name
+- Route label: "Navigation Route from <start point> To <end point>, <estimate total miles> in <estimate total in days and hours>"
 - Number of waypoints
-- Departure date/time
-- Arrival date/time
+- Depart time (changed from "Departure date/time")
+- (ETA) Arrival time (changed from "Arrival date/time")
 - Route statistics (total distance, avg wind, max waves)
 
 **B. Waypoint Management**
@@ -148,7 +160,7 @@
 **C. Waypoint Actions**
 - Move up/down in route
 - Edit waypoint details
-- Delete waypoint
+- Delete waypoint (minimum 2 waypoints required - cannot remove below this)
 - Click to select and view details
 
 **D. Route Operations**
@@ -169,6 +181,8 @@
 - ✓ Daylight arrival warnings
 - ✓ Multi-format export (GPX, KML, KMZ, CSV)
 - ✓ GPX import functionality
+- ✓ Minimum 2 waypoints enforcement
+- ✓ Enhanced route label with distance and time estimates
 
 **Data Managed:**
 - Waypoint coordinates
@@ -183,29 +197,35 @@
 
 **Location:** Tab 3 - Navigation
 
+**Screen Title:** "Sailing Polar Configuration"
+
 **Primary Purpose:** Analyze sail performance in different wind conditions
 
 #### Major Sections:
 
-**A. Engine Activation Settings**
-- Wind threshold input (knots)
+**A. Guide Information** *(Top of page)*
+- Guide and educational information about polar diagrams
+- Performance insights and explanations
+
+**B. Engine Activation Settings**
+- Wind threshold input with counter up/down button (improved UX)
 - Save button
 - Description: engine activation when below threshold
 
-**B. Polar Diagram Controls**
+**C. Polar Diagram Controls**
 - Wind Speed slider/input (0-50+ knots)
 - Current TWA input (0-360 degrees)
 - Current Speed display (calculated)
 - View Details button
 
-**C. Polar Chart**
+**D. Polar Chart**
 - Interactive diagram showing:
   - Boat speed at different wind angles
   - Current position marker (red dot)
   - Speed arcs/contours
   - Wind direction indicators
 
-**D. Quick Reference**
+**E. Quick Reference**
 - Common sailing scenarios
 - Expected speeds for each scenario
 - Performance benchmarks
@@ -213,8 +233,10 @@
 **Key Features:**
 - ✓ Real-time chart updates
 - ✓ Hover/tap for detailed values
-- ✓ Engine threshold configuration
+- ✓ Engine threshold configuration with counter up/down
 - ✓ Performance analysis tools
+- ✓ Guide information positioned at top
+- ✓ "Sailing Polar Configuration" title
 
 **Data Used:**
 - Polar performance table (Lagoon 440)
@@ -230,14 +252,20 @@
 
 **Primary Purpose:** Continuous weather monitoring with alert configuration
 
+**Description:** "Cloud AI agent monitors the weather condition along your sailing route and send weather alerts for changes"
+
 #### Major Sections:
 
-**A. Monitoring Toggle**
+**A. Sailing AI Agent Parameters**
+- Agent configuration options
+- Performance tuning settings
+
+**B. Monitoring Toggle**
 - Enable/Disable monitoring switch
 - Status indicator (Active/Inactive)
 - Prerequisites check
 
-**B. Configuration Options**
+**C. Configuration Options**
 - Monitoring interval (hours)
 - Forecast days (3-7 days ahead)
 - Max wind speed threshold
@@ -245,31 +273,34 @@
 - Storm avoidance toggle
 - Daylight arrival toggle
 
-**C. Notification Preferences**
+**D. Notification Preferences**
 - Push notifications toggle
 - SMS notifications toggle (with phone input)
 - Email notifications toggle (with email input)
+- "Play Sound and Confirm Alert" option: plays sound until user confirms and closes alert
 - Contact information fields
 
-**D. Active Monitoring Status**
+**E. Active Monitoring Status**
 - Last check time display
 - Current active alerts list
 - Alert details (severity, location, conditions, duration)
-- Acknowledgment required for each alert
+- Acknowledgment required for each alert (with sound confirmation option)
 
-**E. Alert Indicators**
+**F. Alert Indicators**
 - Color coding by severity
 - Location on route
 - Estimated impact time
 - Recommended actions
 
 **Key Features:**
-- ✓ Real-time weather monitoring
+- ✓ Real-time weather monitoring with Cloud AI agent
 - ✓ Multi-channel notifications
+- ✓ "Play Sound and Confirm Alert" for better user awareness
 - ✓ Auto-detection of route hazards
 - ✓ Daylight arrival enforcement
 - ✓ Storm tracking and warnings
 - ✓ Tide/current integration
+- ✓ Sailing AI Agent Parameters configuration
 
 **Data Monitored:**
 - Wind speed/direction
@@ -303,7 +334,7 @@
 - App description: "Lagoon 440 Navigation Assistant"
 - App version: "1.0.0"
 
-**D. Your Features (Agent Features)**
+**B. AI Agent Features** *(changed from "Your Features")*
 - Real-time Sailing Recommendations ✓
 - Automated Route Planning ✓
 - Weather Monitoring & Alerts ✓

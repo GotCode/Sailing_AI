@@ -36,6 +36,8 @@ export interface SailConfiguration {
   spinnaker: boolean;
   codeZero: boolean;
   stormJib: boolean;
+  reefLevel?: number; // 0 = full, 1 = 1st reef, 2 = 2nd reef, 3 = deep reef
+  headsailReef?: number; // 0 = full, 1 = reefed (75%), 2 = heavily reefed (50%), 3 = storm jib
 }
 
 export interface SailRecommendation {
@@ -43,6 +45,7 @@ export interface SailRecommendation {
   expectedSpeed: number; // knots
   description: string;
   confidence: number; // 0-100
+  reefingAdvice?: string; // Human-readable reefing recommendation
 }
 
 export enum SailingMode {
@@ -72,6 +75,13 @@ export interface Waypoint {
   sog?: number; // Speed over ground in knots
   currentSpeed?: number; // Current speed in knots
   currentDirection?: number; // Current direction in degrees
+  usePreventer?: boolean; // Whether a preventer line should be rigged
+  preventerReason?: string; // Why preventer is recommended
+  stormHandling?: StormHandlingRecommendation; // Heavy weather tactic recommendation
+  isThrottled?: boolean; // Speed reduced to ensure daylight arrival
+  throttledSpeed?: number; // Reduced speed in knots (original speed in sog before throttle)
+  isHeaveTo?: boolean; // Heave-to waypoint: boat stops and waits for daylight
+  heaveToWaitHours?: number; // Hours spent waiting at heave-to position
 }
 
 export interface Route {
@@ -118,4 +128,25 @@ export interface RoutePlanningConfig {
   maxDailyDistance: number; // nautical miles
   preferredWaypointInterval: number; // nautical miles
   startDate?: Date;
+}
+
+// ── Storm Handling ──────────────────────────────────────────────
+
+export type StormTactic = 'heave-to' | 'run-off' | 'motor' | 'normal';
+
+/** Persistent user equipment / preferences stored in AsyncStorage */
+export interface StormHandlingConfig {
+  hasParachuteSeaAnchor: boolean;  // bow-deployed sea anchor for heave-to
+  hasJordanSeriesDrogue: boolean;  // stern drogue for run-off speed control
+  autopilotReliable: boolean;      // can the autopilot handle storm steering?
+  defaultSeaRoomNm: number;        // default assumed sea room downwind (nm)
+}
+
+/** Per-waypoint storm tactic recommendation */
+export interface StormHandlingRecommendation {
+  tactic: StormTactic;
+  label: string;         // e.g. "HEAVE-TO" or "RUN OFF"
+  reason: string;        // human-readable explanation
+  details: string[];     // bullet-point factors
+  severity: 'normal' | 'caution' | 'danger';
 }

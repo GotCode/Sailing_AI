@@ -205,6 +205,8 @@ export default function WeatherMonitorScreen() {
         return '🌀';
       case 'daytime_arrival':
         return '🌙';
+      case 'storm_handling':
+        return '⚓';
       default:
         return '⚠️';
     }
@@ -217,6 +219,18 @@ export default function WeatherMonitorScreen() {
         <Text style={styles.title}>Weather Monitor</Text>
         <Text style={styles.subtitle}>
           Cloud AI agent monitors the weather condition along your sailing route and send weather alerts for changes
+        </Text>
+      </View>
+
+      {/* Info Box - About AI Weather Monitoring (moved to top) */}
+      <View style={styles.infoBox}>
+        <Text style={styles.infoTitle}>ℹ️ About AI Weather Monitoring</Text>
+        <Text style={styles.infoText}>
+          • AI agent monitors weather conditions at waypoints and along your route{'\n'}
+          • Checks every {config.intervalHours} hours for {config.forecastDays}-day forecasts{'\n'}
+          • Sends alerts for high winds, waves, storms, and arrival time issues{'\n'}
+          • Notifications sent via your preferred method(s){'\n'}
+          • Disable before changing route to avoid false alerts
         </Text>
       </View>
 
@@ -239,7 +253,7 @@ export default function WeatherMonitorScreen() {
 
         {activeRoute && (
           <Text style={styles.routeInfo}>
-            Route: {activeRoute.name} ({activeRoute.waypoints.length} waypoints)
+            Route: {activeRoute.name}
           </Text>
         )}
 
@@ -389,35 +403,6 @@ export default function WeatherMonitorScreen() {
         )}
       </View>
 
-      {/* Sailing AI Agent Parameters */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Sailing AI Agent Parameters</Text>
-
-        <View style={styles.aiParamRow}>
-          <Text style={styles.aiParamLabel}>AI Intelligence Level</Text>
-          <Text style={styles.aiParamValue}>Advanced Machine Learning</Text>
-        </View>
-
-        <View style={styles.aiParamRow}>
-          <Text style={styles.aiParamLabel}>Weather Prediction Model</Text>
-          <Text style={styles.aiParamValue}>Neural Network Ensemble</Text>
-        </View>
-
-        <View style={styles.aiParamRow}>
-          <Text style={styles.aiParamLabel}>Alert Sensitivity</Text>
-          <Text style={styles.aiParamValue}>Context-Aware Adaptive</Text>
-        </View>
-
-        <View style={styles.aiParamRow}>
-          <Text style={styles.aiParamLabel}>Learning Capability</Text>
-          <Text style={styles.aiParamValue}>Continuous Route-Based</Text>
-        </View>
-
-        <Text style={styles.aiDescription}>
-          The AI agent continuously learns from your sailing patterns and weather conditions to provide increasingly accurate predictions and more relevant alerts.
-        </Text>
-      </View>
-
       {/* Notification Settings */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Notifications</Text>
@@ -535,15 +520,32 @@ export default function WeatherMonitorScreen() {
         )}
       </View>
 
-      {/* Info Box */}
-      <View style={styles.infoBox}>
-        <Text style={styles.infoTitle}>ℹ️ About AI Weather Monitoring</Text>
-        <Text style={styles.infoText}>
-          • AI agent monitors weather conditions at waypoints and along your route{'\n'}
-          • Checks every {config.intervalHours} hours for {config.forecastDays}-day forecasts{'\n'}
-          • Sends alerts for high winds, waves, storms, and arrival time issues{'\n'}
-          • Notifications sent via your preferred method(s){'\n'}
-          • Disable before changing route to avoid false alerts
+      {/* Sailing AI Agent Parameters (moved to bottom) */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Sailing AI Agent Parameters</Text>
+
+        <View style={styles.aiParamRow}>
+          <Text style={styles.aiParamLabel}>AI Intelligence Level</Text>
+          <Text style={styles.aiParamValue}>Advanced Machine Learning</Text>
+        </View>
+
+        <View style={styles.aiParamRow}>
+          <Text style={styles.aiParamLabel}>Weather Prediction Model</Text>
+          <Text style={styles.aiParamValue}>Neural Network Ensemble</Text>
+        </View>
+
+        <View style={styles.aiParamRow}>
+          <Text style={styles.aiParamLabel}>Alert Sensitivity</Text>
+          <Text style={styles.aiParamValue}>Context-Aware Adaptive</Text>
+        </View>
+
+        <View style={styles.aiParamRow}>
+          <Text style={styles.aiParamLabel}>Learning Capability</Text>
+          <Text style={styles.aiParamValue}>Continuous Route-Based</Text>
+        </View>
+
+        <Text style={styles.aiDescription}>
+          The AI agent continuously learns from your sailing patterns and weather conditions to provide increasingly accurate predictions and more relevant alerts.
         </Text>
       </View>
     </ScrollView>

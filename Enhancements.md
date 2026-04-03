@@ -43,3 +43,28 @@ Operation:
     ✅ Add "Play Sound and Confirm Alert" option in the "Notifications" panel.  When an alert is notified, play a sound until the user confirm and respond to the alert by closing it. 
 ✅ Change "Real GPS" to "Realtime", "Start Real Tracking" to "Start Route".
   ✅ When the user click on the "Start Route or Run Simulation", with the weather monitoring enabled, send an initial notification to let the user know his monitoring has started.
+  
+04/03/2026 At Hong Ngu
+Corrections:
+-  In the "Sailing Polar Controls" Add the option to "Use Engine when Wind Speed < preset 3 Knot. Allows the value to be changed  
+-  rename the "Navigation Route from Start To Destination, 0.0 miles in 4 hours" to "Auto Planning Route"
+- The Start GPS point is incorrect.  It needs to be the entered GPS point
+- Change the "Save to Profile" to "Cancel" to return the Auto Planning Route to the Sailing Tab.
+
+Route Tab:
+- The calculation of warning arrival outside the configured arrival time is incorrect. 
+
+Weather Monitor Tab
+- Move the "About AI Weather Monitoring" section to the top.
+- Move the "Sailing AI Agent Parameters" section to the bottom
+
+Profile Tab:
+- Change "Made with ❤️ for sailors" to "Sail with ❤️ for sailors"
+
+Sailing Tab:
+- Starting and Ending Points can use Google Plus code, Ex: "4JGR+9QF Kien Luong, Kien Giang, Vietnam" - Fix this
+- Remove the ? button
+- When click on the GPS button, do not copy GPS location of Start to End after the initialization
+- Open Map, opens the Google map with the GPS location in the Start or End point.
+- Use the term Start Point and End Point
+- Draw the planned route in the Route Map with porpotional GPS coordinates scale in N, E, S, W direction of the rectangular sailing region of the Start-End points + 20 miles  

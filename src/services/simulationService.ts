@@ -3,6 +3,8 @@
 
 import { Route, Waypoint, GPSCoordinates, WindForecast } from '../types/sailing';
 import { getWeatherMonitoringService } from './weatherMonitoringService';
+import { getReefingRecommendation } from '../data/lagoon440Polar';
+import { assessPreventer } from '../utils/sailingCalculations';
 
 interface SimulationState {
   isRunning: boolean;
@@ -476,6 +478,41 @@ function checkForAlerts(weather: SimulatedWeather, route: Route | null): StormAl
       timestamp: new Date(),
       affectedWaypoints: [],
     });
+  }
+
+  // Reefing advisory - alert when wind speed crosses a reefing threshold
+  if (weather.windSpeed >= 15) {
+    const { mainReef, headsailReef, reefingAdvice } = getReefingRecommendation(weather.windSpeed);
+    const reefSeverity = weather.windSpeed >= 25 ? 'warning' : weather.windSpeed >= 20 ? 'watch' : 'advisory';
+    alerts.push({
+      id: `reef-${Date.now()}`,
+      type: 'high_wind',
+      severity: reefSeverity,
+      message: `⛵ Reef sails: ${reefingAdvice}. ${mainReef.description}. ${headsailReef.description}. Wind: ${weather.windSpeed.toFixed(0)} kts.`,
+      location: weather.boatPosition || route.waypoints[0].coordinates,
+      timestamp: new Date(),
+      affectedWaypoints: [],
+    });
+  }
+
+  // Preventer advisory - assess gybe risk based on current conditions
+  if (weather.boatPosition && route.waypoints.length >= 2) {
+    // Estimate TWA from wind direction and boat heading
+    const heading = weather.boatHeading || 0;
+    const rawTwa = Math.abs(weather.windDirection - heading);
+    const twa = rawTwa > 180 ? 360 - rawTwa : rawTwa;
+    const preventerCheck = assessPreventer(twa, weather.windSpeed, weather.waveHeight, '');
+    if (preventerCheck.usePreventer) {
+      alerts.push({
+        id: `preventer-${Date.now()}`,
+        type: 'high_wind',
+        severity: 'advisory',
+        message: `🔗 Rig preventer! ${preventerCheck.reason}`,
+        location: weather.boatPosition,
+        timestamp: new Date(),
+        affectedWaypoints: [],
+      });
+    }
   }
 
   return alerts;

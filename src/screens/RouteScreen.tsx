@@ -13,6 +13,7 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { Waypoint, Route } from '../types/sailing';
+import { formatCoordsDM } from '../utils/coordinateParser';
 import { parseGPX, generateGPX } from '../utils/gpxHandler';
 import { getNavigationService } from '../services/navigationService';
 import ErrorPanel from '../components/ErrorPanel';
@@ -239,7 +240,7 @@ const RouteScreen: React.FC = () => {
         <View style={styles.waypointDetails}>
           <Text style={styles.waypointName}>{item.name}</Text>
           <Text style={styles.waypointCoords}>
-            {item.latitude.toFixed(6)}, {item.longitude.toFixed(6)}
+            {formatCoordsDM(item.latitude, item.longitude)}
           </Text>
           {item.arrived && (
             <Text style={styles.arrivedText}>✓ Arrived</Text>

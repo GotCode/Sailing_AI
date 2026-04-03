@@ -1,5 +1,5 @@
 # Sailing AI - Quick Reference Card
-## One-Page Guide for All Features
+## One-Page Guide for All Features (v1.0.0 - Updated April 3, 2026)
 
 ---
 
@@ -11,22 +11,27 @@
 - Select "Sign In" or "Create Account"
 
 ### 2. **Plan Route** (⛵ Sailing Tab)
+- Select Sailing Mode (Sail/Engine) at top
 - Enter start point (GPS/Map/Manual)
-- Enter end point
+- Enter end point with consolidated "Open Map" button
+- Pick start date using calendar dialog
 - Enter wind data
 - Tap "Plan Route"
 
-### 3. **Manage Waypoints** (🗺️ Route Tab)
+### 3. **Manage Waypoints** (🗺️ Route Tab - "Route Review & Edit")
 - Add/edit waypoints
 - Set sail configuration per waypoint
+- Use "Depart time" and "(ETA) Arrival time" labels
 - Export as GPX/KML/CSV
 - Save to profile
+- **Note:** Minimum 2 waypoints required
 
 ### 4. **Monitor Weather** (🌤️ Weather Tab)
-- Enable monitoring
+- Enable monitoring (Cloud AI agent)
 - Set wind/wave thresholds
-- Configure notifications
+- Configure notifications (with "Play Sound and Confirm Alert" option)
 - Monitor active alerts
+- Configure Sailing AI Agent Parameters
 
 ---
 

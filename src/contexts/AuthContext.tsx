@@ -40,7 +40,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Load stored auth data on mount
   useEffect(() => {
+    const loadingTimeout = setTimeout(() => {
+      setIsLoading(false);
+    }, 4000);
+
     loadStoredAuth();
+
+    return () => {
+      clearTimeout(loadingTimeout);
+    };
   }, []);
 
   const loadStoredAuth = async () => {

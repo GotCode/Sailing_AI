@@ -74,10 +74,52 @@ const PolarScreen: React.FC = () => {
         </View>
 
         {/* Engine Activation Settings */}
+        <View style={styles.enginePanel}>
+          <Text style={styles.panelTitle}>Wind Threshold To Run Engine</Text>
+          <Text style={styles.engineDescription}>
+            Use engine when wind speed falls below the threshold. Adjust the value as needed.
+          </Text>
+          <View style={styles.engineInputRow}>
+            <Text style={styles.label}>Use Engine when Wind Speed &lt; (knots)</Text>
+            <View style={styles.engineInputContainer}>
+              <TouchableOpacity
+                style={styles.counterButton}
+                onPress={() => {
+                  const newVal = Math.max(0, engineThreshold - 1);
+                  setEngineThreshold(newVal);
+                }}
+              >
+                <Text style={styles.counterButtonText}>−</Text>
+              </TouchableOpacity>
+              <Text style={styles.counterValue}>{engineThreshold}</Text>
+              <TouchableOpacity
+                style={styles.counterButton}
+                onPress={() => {
+                  const newVal = Math.min(20, engineThreshold + 1);
+                  setEngineThreshold(newVal);
+                }}
+              >
+                <Text style={styles.counterButtonText}>+</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.saveThresholdButton}
+                onPress={() => saveEngineThreshold(engineThreshold)}
+              >
+                <Text style={styles.saveButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.engineNote}>
+              Default: 3 knots. Engine will activate when wind speed is below this value.
+            </Text>
+          </View>
+        </View>
 
         {/* Control Panel */}
         <View style={styles.controlPanel}>
-          <Text style={styles.panelTitle}>Sailing Polar Controls</Text>
+          <Text style={styles.panelTitle}>Wind & Speed Controls</Text>
+          <Text style={styles.engineDescription}>
+            Adjust wind speed and true wind angle to see how your boat performs under different conditions. The polar diagram updates in real time to show expected boat speed, optimal VMG angles, and recommended sail configurations.
+          </Text>
 
           <View style={styles.inputRow}>
             <View style={styles.inputGroup}>

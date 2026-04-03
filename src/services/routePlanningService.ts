@@ -8,14 +8,39 @@ import {
   RoutePlanningConfig,
   SailingMode,
   WindForecast,
-  RouteCorridorWeather
+  RouteCorridorWeather,
+  StormHandlingConfig
 } from '../types/sailing';
 import {
   calculateDistance,
   calculateBearing,
-  recommendSailConfiguration
+  recommendSailConfiguration,
+  assessPreventer,
+  evaluateStormTactic
 } from '../utils/sailingCalculations';
+import { getReefingRecommendation } from '../data/lagoon440Polar';
 import { getWindyService } from './windyService';
+import { formatCoordsDM } from '../utils/coordinateParser';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const STORM_HANDLING_CONFIG_STORAGE = 'storm_handling_config';
+
+const DEFAULT_STORM_CONFIG: StormHandlingConfig = {
+  hasParachuteSeaAnchor: false,
+  hasJordanSeriesDrogue: false,
+  autopilotReliable: true,
+  defaultSeaRoomNm: 50,
+};
+
+async function loadStormConfig(): Promise<StormHandlingConfig> {
+  try {
+    const stored = await AsyncStorage.getItem(STORM_HANDLING_CONFIG_STORAGE);
+    if (stored) return JSON.parse(stored);
+  } catch (e) {
+    console.warn('Failed to load storm config, using defaults');
+  }
+  return DEFAULT_STORM_CONFIG;
+}
 
 /**
  * Calculate sunrise and sunset times for a given location and date
@@ -38,16 +63,16 @@ function calculateSunriseSunset(coordinates: GPSCoordinates, date: Date): { sunr
   // Solar hour angle
   const hourAngle = Math.acos((Math.sin(-0.83 * Math.PI / 180) - Math.sin(lat) * Math.sin(declination)) / (Math.cos(lat) * Math.cos(declination)));
 
-  // Calculate sunrise and sunset times in hours
+  // Calculate sunrise and sunset times in UTC hours
   const sunriseHour = 12 - (hourAngle * 180 / Math.PI) / 15 + equationOfTime / 60 - lng * 180 / (Math.PI * 15);
   const sunsetHour = 12 + (hourAngle * 180 / Math.PI) / 15 + equationOfTime / 60 - lng * 180 / (Math.PI * 15);
 
-  // Create Date objects
+  // Create Date objects using UTC since the calculation yields UTC times
   const sunrise = new Date(date);
-  sunrise.setHours(Math.floor(sunriseHour), (sunriseHour % 1) * 60, 0, 0);
+  sunrise.setUTCHours(Math.floor(sunriseHour), Math.round((sunriseHour % 1) * 60), 0, 0);
 
   const sunset = new Date(date);
-  sunset.setHours(Math.floor(sunsetHour), (sunsetHour % 1) * 60, 0, 0);
+  sunset.setUTCHours(Math.floor(sunsetHour), Math.round((sunsetHour % 1) * 60), 0, 0);
 
   return { sunrise, sunset };
 }
@@ -232,6 +257,172 @@ function calculateDepartureForDaylightArrival(
 }
 
 /**
+ * Post-process waypoints to ensure daylight arrival at the destination.
+ * Uses the endpoint's local solar time (sunrise/sunset at destination coordinates).
+ * Strategy:
+ *   1. All waypoints use maximum speed (wind conditions may deteriorate near end).
+ *   2. If destination arrival is outside daylight, only throttle waypoints within 10nm of endpoint.
+ *   3. If throttling to >= 2 knots is sufficient, slow those legs down to arrive at sunrise + 1hr.
+ *   4. If throttling isn't enough (need to wait too long), inject a Heave-To waypoint
+ *      at ~10nm from destination. The boat waits there until sailing the last 10nm
+ *      at full speed would arrive at sunrise + 1hr.
+ */
+function adjustForDaylightArrival(
+  waypoints: Waypoint[],
+  startPoint: GPSCoordinates,
+  destination: GPSCoordinates,
+  departureTime: Date,
+  averageSpeed: number
+): Waypoint[] {
+  if (waypoints.length < 2) return waypoints;
+
+  const destWP = waypoints[waypoints.length - 1];
+  if (!destWP.estimatedArrival) return waypoints;
+
+  // Check daylight at destination using destination's coordinates (local solar time)
+  const arrivalTime = new Date(destWP.estimatedArrival);
+  const { sunrise, sunset } = calculateSunriseSunset(destination, arrivalTime);
+
+  if (isDaylight(arrivalTime, destination)) return waypoints; // Already arriving in daylight
+
+  // Determine the next available daylight arrival window
+  let targetArrival: Date;
+  if (arrivalTime.getTime() > sunset.getTime()) {
+    // Arriving after sunset → target next day's sunrise + 1hr buffer
+    const nextDay = new Date(arrivalTime);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    const { sunrise: nextSunrise } = calculateSunriseSunset(destination, nextDay);
+    targetArrival = new Date(nextSunrise.getTime() + 3600000);
+  } else {
+    // Arriving before sunrise → target this day's sunrise + 1hr buffer
+    targetArrival = new Date(sunrise.getTime() + 3600000);
+  }
+
+  const delayHours = (targetArrival.getTime() - arrivalTime.getTime()) / 3600000;
+  if (delayHours <= 0) return waypoints;
+
+  const totalDist = destWP.distanceFromStart || 0;
+  const throttleZone = Math.min(10, totalDist * 0.9); // 10nm, but max 90% of route
+  const zoneStartDist = totalDist - throttleZone;
+
+  // Find the last waypoint AT or BEFORE the throttle zone boundary
+  let zoneEntryIdx = 0;
+  for (let i = waypoints.length - 2; i >= 0; i--) {
+    if ((waypoints[i].distanceFromStart || 0) <= zoneStartDist) {
+      zoneEntryIdx = i;
+      break;
+    }
+  }
+
+  // Distance from zone entry waypoint to destination
+  const entryDist = waypoints[zoneEntryIdx].distanceFromStart || 0;
+  const distFromEntry = totalDist - entryDist;
+  const timeAtFullSpeed = distFromEntry / averageSpeed;
+  const neededTime = timeAtFullSpeed + delayHours;
+  const throttledSpd = distFromEntry / neededTime;
+
+  const MIN_THROTTLE_SPEED = 2; // knots — below this, heave-to is more practical
+
+  if (throttledSpd >= MIN_THROTTLE_SPEED) {
+    // === THROTTLE APPROACH ===
+    // Slow down legs within 10nm of endpoint to delay arrival into daylight
+    const modified = waypoints.map(wp => ({ ...wp }));
+    let cumTime = modified[zoneEntryIdx].elapsedTime || 0;
+
+    for (let i = zoneEntryIdx + 1; i < modified.length; i++) {
+      const newLegTime = (modified[i].legDistance || 0) / throttledSpd;
+      modified[i].legTime = newLegTime;
+      modified[i].sog = throttledSpd;
+      modified[i].isThrottled = true;
+      modified[i].throttledSpeed = throttledSpd;
+      cumTime += newLegTime;
+      modified[i].elapsedTime = cumTime;
+      modified[i].estimatedArrival = new Date(departureTime.getTime() + cumTime * 3600000);
+    }
+
+    console.log(`Daylight throttle: slowed last ${distFromEntry.toFixed(1)}nm from ${averageSpeed} to ${throttledSpd.toFixed(1)} kts (delay ${delayHours.toFixed(1)}h)`);
+    return modified;
+  } else {
+    // === HEAVE-TO APPROACH ===
+    // Inject a Heave-To waypoint at ~10nm from destination; boat waits for daylight there
+    const modified = waypoints.map(wp => ({ ...wp }));
+
+    // Heave-to coordinates at zone boundary
+    const htFraction = totalDist > 0 ? Math.max(0.01, zoneStartDist / totalDist) : 0;
+    const htCoords = intermediatePoint(startPoint, destination, htFraction);
+
+    // Leg from zone entry to heave-to
+    const htLegDist = zoneStartDist - entryDist;
+    const htLegTime = htLegDist > 0 ? htLegDist / averageSpeed : 0;
+    const htElapsed = (modified[zoneEntryIdx].elapsedTime || 0) + htLegTime;
+    const htArrival = new Date(departureTime.getTime() + htElapsed * 3600000);
+
+    // Time to sail the remaining throttle zone at full speed
+    const sailRemaining = throttleZone / averageSpeed;
+
+    // Depart heave-to so that sailing the remaining distance arrives at targetArrival
+    const htDepartTime = new Date(targetArrival.getTime() - sailRemaining * 3600000);
+    const waitHours = Math.max(0, (htDepartTime.getTime() - htArrival.getTime()) / 3600000);
+
+    const htBearing = calculateBearing(modified[zoneEntryIdx].coordinates, htCoords);
+
+    const heaveToWP: Waypoint = {
+      id: 'waypoint-heave-to',
+      name: '⚓ Heave-To (Wait for Daylight)',
+      latitude: htCoords.latitude,
+      longitude: htCoords.longitude,
+      coordinates: htCoords,
+      order: 0,
+      arrived: false,
+      estimatedArrival: htArrival,
+      sailConfiguration: 'Heave-To',
+      useEngine: false,
+      elapsedTime: htElapsed,
+      legTime: htLegTime,
+      distanceFromStart: zoneStartDist,
+      legDistance: htLegDist,
+      cog: htBearing,
+      sog: 0,
+      isHeaveTo: true,
+      heaveToWaitHours: waitHours,
+    };
+
+    // Rebuild waypoints: before zone + heave-to + in-zone waypoints + destination
+    const before = modified.slice(0, zoneEntryIdx + 1);
+    const inZone = modified.slice(zoneEntryIdx + 1, modified.length - 1);
+    const dest = modified[modified.length - 1];
+
+    // Shift in-zone waypoints' timing by the wait period
+    for (const wp of inZone) {
+      const origElapsed = wp.elapsedTime || 0;
+      wp.elapsedTime = origElapsed + waitHours;
+      wp.estimatedArrival = new Date(departureTime.getTime() + wp.elapsedTime * 3600000);
+    }
+
+    // Destination arrives exactly at target
+    dest.elapsedTime = htElapsed + waitHours + sailRemaining;
+    dest.estimatedArrival = new Date(targetArrival);
+    dest.legTime = inZone.length > 0
+      ? (dest.distanceFromStart || 0) - (inZone[inZone.length - 1].distanceFromStart || 0)
+      : throttleZone;
+    dest.legTime = dest.legTime / averageSpeed;
+
+    const result = [...before, heaveToWP, ...inZone, dest];
+
+    // Reassign order and IDs
+    for (let i = 0; i < result.length; i++) {
+      result[i].order = i + 1;
+      result[i].id = `waypoint-${i + 1}`;
+    }
+    result[0].name = 'Start';
+    result[result.length - 1].name = 'Destination';
+
+    console.log(`Daylight heave-to: waiting ${waitHours.toFixed(1)}h at ${zoneStartDist.toFixed(1)}nm from start, then sailing ${throttleZone.toFixed(1)}nm to destination`);
+    return result;
+  }
+}
+
+/**
  * Generate optimized sailing route with waypoints
  */
 export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
@@ -329,6 +520,7 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
     // Determine sail configuration based on weather
     let sailConfig;
     let useEngine = false;
+    let sailDescription = '';
 
     if (nearestWeather) {
       // Calculate true wind angle relative to course
@@ -340,31 +532,71 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
         sailConfig = undefined; // Engine mode
       } else if (avoidStorms && nearestWeather.windSpeed > 40) {
         // Storm avoidance - would need more complex routing here
-        sailConfig = recommendSailConfiguration(
+        const rec = recommendSailConfiguration(
           nearestWeather.windSpeed,
           trueWindAngle,
           SailingMode.COMFORT
-        ).configuration;
+        );
+        sailConfig = rec.configuration;
+        sailDescription = rec.description;
       } else {
-        sailConfig = recommendSailConfiguration(
+        const rec = recommendSailConfiguration(
           nearestWeather.windSpeed,
           trueWindAngle,
           sailingMode
-        ).configuration;
+        );
+        sailConfig = rec.configuration;
+        sailDescription = rec.description;
       }
     }
 
-    // Determine sail configuration string
+    // Determine sail configuration string with reefing info
     let sailConfigString = 'Engine';
     if (!useEngine && sailConfig) {
       const sails = [];
-      if (sailConfig.mainSail) sails.push('Main');
-      if (sailConfig.jib) sails.push('Jib');
+      if (sailConfig.mainSail) {
+        if (sailConfig.reefLevel && sailConfig.reefLevel > 0) {
+          const reefLabels = ['', 'R1', 'R2', 'R3'];
+          sails.push(`Main(${reefLabels[sailConfig.reefLevel]})`);
+        } else {
+          sails.push('Main');
+        }
+      }
+      if (sailConfig.jib) {
+        if (sailConfig.headsailReef && sailConfig.headsailReef > 0) {
+          const reefLabels = ['', 'R1', 'R2', 'Storm'];
+          sails.push(`Jib(${reefLabels[sailConfig.headsailReef]})`);
+        } else {
+          sails.push('Jib');
+        }
+      }
       if (sailConfig.asymmetrical) sails.push('Asym');
       if (sailConfig.spinnaker) sails.push('Spin');
       if (sailConfig.codeZero) sails.push('Code0');
-      if (sailConfig.stormJib) sails.push('Storm');
+      if (sailConfig.stormJib) sails.push('StormJib');
       sailConfigString = sails.length > 0 ? sails.join('+') : 'Main+Jib';
+
+      // Append reefing advice if wind requires reefing
+      if (nearestWeather && nearestWeather.windSpeed >= 15) {
+        const { reefingAdvice } = getReefingRecommendation(nearestWeather.windSpeed);
+        sailConfigString += ` [${reefingAdvice}]`;
+      }
+    }
+
+    // Assess whether a preventer should be rigged for this leg
+    let usePreventer = false;
+    let preventerReason = '';
+    if (!useEngine && nearestWeather) {
+      const trueWindAngle = Math.abs(nearestWeather.windDirection - legBearing);
+      const twa = trueWindAngle > 180 ? 360 - trueWindAngle : trueWindAngle;
+      const preventerCheck = assessPreventer(
+        twa,
+        nearestWeather.windSpeed,
+        nearestWeather.waveHeight,
+        sailDescription
+      );
+      usePreventer = preventerCheck.usePreventer;
+      preventerReason = preventerCheck.reason;
     }
 
     const waypoint: Waypoint = {
@@ -382,6 +614,8 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
       estimatedArrival,
       sailConfiguration: sailConfigString,
       useEngine,
+      usePreventer,
+      preventerReason,
       weatherForecast: nearestWeather ? {
         ...nearestWeather,
         direction: nearestWeather.windDirection,
@@ -393,14 +627,43 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
       legDistance: legDistance,
       cog: legBearing,
       sog: legSpeed,
+      // Storm handling will be evaluated in post-processing
     };
 
     waypoints.push(waypoint);
   }
 
+  // Post-process: adjust for daylight arrival at destination
+  // Uses endpoint's local solar time. Only throttles within 10nm of endpoint.
+  // Injects Heave-To waypoint if throttling alone is insufficient.
+  let finalWaypoints = waypoints;
+  if (ensureDaytimeArrival) {
+    finalWaypoints = adjustForDaylightArrival(
+      waypoints,
+      startPoint,
+      destination,
+      departureTime,
+      averageSpeed
+    );
+  }
+
+  // Post-process: evaluate storm handling tactic for each waypoint
+  const stormEquipment = await loadStormConfig();
+  for (const wp of finalWaypoints) {
+    if (wp.weatherForecast && wp.weatherForecast.windSpeed >= 25) {
+      wp.stormHandling = evaluateStormTactic(
+        wp.weatherForecast.windSpeed,
+        wp.weatherForecast.waveHeight,
+        0, // wavePeriod unknown from forecast data
+        stormEquipment.defaultSeaRoomNm,
+        stormEquipment
+      );
+    }
+  }
+
   // Validate daylight arrival for all waypoints
-  for (let i = 0; i < waypoints.length; i++) {
-    const wp = waypoints[i];
+  for (let i = 0; i < finalWaypoints.length; i++) {
+    const wp = finalWaypoints[i];
     if (wp.estimatedArrival) {
       const validation = validateDaylightArrival(wp, wp.coordinates);
       if (!validation.isValid) {
@@ -409,10 +672,23 @@ export async function planRoute(config: RoutePlanningConfig): Promise<Route> {
     }
   }
 
+  // Calculate total distance and estimated travel time for route name
+  const routeTotalDistance = finalWaypoints.reduce((sum, wp) => sum + (wp.legDistance || 0), 0) || totalDistance;
+  let routeTimeLabel = '';
+  if (finalWaypoints.length >= 2 && finalWaypoints[0].estimatedArrival && finalWaypoints[finalWaypoints.length - 1].estimatedArrival) {
+    const totalHoursRaw = (finalWaypoints[finalWaypoints.length - 1].estimatedArrival!.getTime() - finalWaypoints[0].estimatedArrival!.getTime()) / (1000 * 60 * 60);
+    const days = Math.floor(totalHoursRaw / 24);
+    const hours = Math.round(totalHoursRaw % 24);
+    routeTimeLabel = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+  }
+
+  const startLabel = formatCoordsDM(startPoint.latitude, startPoint.longitude);
+  const endLabel = formatCoordsDM(destination.latitude, destination.longitude);
+
   const route: Route = {
     id: `route-${Date.now()}`,
-    name: `Route to ${destination.latitude.toFixed(2)}°, ${destination.longitude.toFixed(2)}°`,
-    waypoints,
+    name: `From ${startLabel} TO ${endLabel} - ${finalWaypoints.length} waypoints, ${routeTotalDistance.toFixed(1)} nm${routeTimeLabel ? `, ${routeTimeLabel}` : ''}`,
+    waypoints: finalWaypoints,
     createdAt: new Date(),
     updatedAt: new Date(),
     startDate: departureTime,
@@ -450,6 +726,49 @@ export function validateDaylightArrival(
   };
 }
 
+/**
+ * Re-plan route in response to a storm detected by weather monitoring.
+ * Compares new route ETA to the original; if deviation > 24 hours,
+ * returns `requiresConfirmation: true` so the UI can prompt the user.
+ *
+ * The re-plan uses the same config but forces the sailing mode
+ * the user configured (comfort / speed / mixed), which affects
+ * sail configuration recommendations and speed calculations.
+ */
+export async function replanRouteForStorm(
+  originalRoute: Route,
+  config: RoutePlanningConfig,
+  stormWaypoints: Waypoint[]
+): Promise<{
+  newRoute: Route;
+  deviationHours: number;
+  requiresConfirmation: boolean;
+  stormAlertSummary: string;
+}> {
+  // Build a summary of storm conditions encountered
+  const stormSummary = stormWaypoints
+    .filter(wp => wp.stormHandling && wp.stormHandling.severity !== 'normal')
+    .map(wp => `${wp.name}: ${wp.stormHandling!.label} (${wp.weatherForecast?.windSpeed.toFixed(0) || '?'} kts, ${wp.weatherForecast?.waveHeight.toFixed(1) || '?'}m waves) — ${wp.stormHandling!.reason}`)
+    .join('\n');
+
+  // Re-plan with fresh weather data and the configured sailing mode
+  const newRoute = await planRoute(config);
+
+  // Calculate time deviation
+  const origEnd = originalRoute.waypoints[originalRoute.waypoints.length - 1];
+  const newEnd = newRoute.waypoints[newRoute.waypoints.length - 1];
+  const origETA = origEnd.estimatedArrival ? new Date(origEnd.estimatedArrival).getTime() : 0;
+  const newETA = newEnd.estimatedArrival ? new Date(newEnd.estimatedArrival).getTime() : 0;
+  const deviationHours = Math.abs(newETA - origETA) / 3600000;
+
+  return {
+    newRoute,
+    deviationHours,
+    requiresConfirmation: deviationHours > 24,
+    stormAlertSummary: stormSummary || 'Storm conditions detected along route.',
+  };
+}
+
 // Singleton instance
 let routePlanningServiceInstance: typeof routePlanningService | null = null;
 
@@ -457,6 +776,7 @@ export const routePlanningService = {
   planRoute,
   fetchRouteCorridorWeather,
   validateDaylightArrival,
+  replanRouteForStorm,
 };
 
 export function getRoutePlanningService() {

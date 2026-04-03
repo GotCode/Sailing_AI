@@ -1,8 +1,8 @@
 # Sailing AI - Complete User Guide
-## Lagoon 440 Navigation Assistant
+## Advanced Navigation Assistant
 
 **Version:** 1.0.0  
-**Last Updated:** March 31, 2026
+**Last Updated:** April 3, 2026
 
 ---
 
@@ -88,20 +88,34 @@ The main application has 6 tabs accessible from the bottom navigation:
 
 **Purpose:** Plan sailing routes, get wind recommendations, and perform route simulations
 
-### Section 1: Route Planning
+**Screen Title:** "Sailing AI"
+
+### Section 1: Sailing Mode (Top of Screen)
+
+**Description:** Configure boat operational mode
+
+**Options:**
+- 🚤 **Engine Mode:** Use engine power
+- ⛵ **Sail Mode:** Use sails only
+
+**Importance:** Affects route planning calculations and fuel/energy estimates
+
+---
+
+### Section 2: Route Planning
 
 #### Starting Point Input
 **Description:** Define your departure location
 
 **Input Methods:**
 1. **Manual Coordinates:** Enter lat/lon in decimal (25.7617, -80.1918) or DMS format (25°45.7'N, 80°11.5'W)
-2. **GPS Button:** Use current GPS location (requires location permission)
-3. **Map Button:** Open Google Maps to select location visually
+2. **GPS Button:** Use current GPS location (converts both Start and End points to GPS format)
+3. **Open Map:** Launch Google Maps to select location visually
 
 **Buttons:**
 - **?** - Show coordinate format help
-- **GPS** - Use current device location
-- **Open Map** - Launch Google Maps for location selection
+- **GPS** - Use current device location and convert coordinates to GPS format
+- **Open Map** - Launch Google Maps for location selection (same size button as End Point)
 
 #### End Point Input
 **Description:** Define your sailing end point
@@ -114,10 +128,12 @@ The main application has 6 tabs accessible from the bottom navigation:
 - `End Point` - Main end coordinates
 - `Parsed coordinates` - Shows interpreted location
 
+**Note:** "Open Map" button is consolidated and same size for both Start and End points
+
 #### Start Date
 **Description:** Set planned departure date
 
-**Format:** YYYY-MM-DD (e.g., 2026-03-31)
+**Format:** Calendar dialog picker (interactive date selection)
 
 **Purpose:** Used for weather forecasting and route planning calculations
 
@@ -128,45 +144,7 @@ The main application has 6 tabs accessible from the bottom navigation:
 
 ---
 
-### Section 2: Sailing Data Input
-
-#### Wind Data
-**Wind Speed (knots)**
-- Range: 0-50 knots recommended
-- Default: 10 knots
-- Used in sail configuration recommendations
-
-**True Wind Angle (degrees)**
-- Range: 0-360°
-- Default: 90° (beam reach)
-- Angle between boat heading and true wind direction
-
-**Get Wind Forecast Button:**
-- Fetches real-time data from Windy.com
-- Requires valid Windy API key (set in Settings)
-- Updates wind speed and displays:
-  - Current wind speed
-  - Wind direction
-  - Gust speed
-  - Wave height
-
----
-
-### Section 3: Route Corridor Weather
-
-**When Displayed:** After planning a route
-
-**Information Shown:**
-- 🌊 Wave heights along corridor
-- 💨 Wind speeds at waypoints
-- 🌊 Current speeds and directions
-- ⚠️ Weather alerts and warnings
-
-**Data Source:** Windy.com API (with valid API key)
-
----
-
-### Section 4: Route Planning & Simulation
+### Section 3: Route Planning & Simulation
 
 #### Plan Route Button
 **Function:** Generate optimal sailing route between points
@@ -188,15 +166,18 @@ The main application has 6 tabs accessible from the bottom navigation:
 - Pre-loads a demo route (Bermuda)
 - Useful for testing features
 
-**Toggle Simulation/Real GPS:**
-- Simulation Mode: Shows non-real GPS tracking
-- Real GPS Mode: Uses actual device location
+**Toggle Simulation/Realtime:**
+- Realtime Mode: Uses actual device location
+- Simulation Mode: Shows simulated GPS tracking
+- Instructions: Button shows current mode with hover prompt for clarity
 
-**Start/Stop Simulation:**
+**Start/Stop Route:**
+- Begins real-time tracking or simulation
 - Advances route simulation hour by hour
 - Shows simulated weather conditions
 - Updates storm alerts
 - Displays position on route map
+- **Note:** When weather monitoring is enabled, an initial notification is sent to confirm monitoring has started
 
 #### Simulation Status Display
 **Shows During Simulation:**
@@ -208,7 +189,7 @@ The main application has 6 tabs accessible from the bottom navigation:
 
 ---
 
-### Section 5: Sail Recommendations
+### Section 4: Sail Recommendations
 
 #### Automatic Calculation
 **Triggered When:**
@@ -223,7 +204,7 @@ The main application has 6 tabs accessible from the bottom navigation:
 
 ---
 
-### Section 6: Route Actions
+### Section 5: Route Actions
 
 **Save Route to Profile:**
 - Available after planning route
@@ -237,9 +218,13 @@ The main application has 6 tabs accessible from the bottom navigation:
 
 ---
 
-## Route Management Screen
+## Route Management Screen (Route Review & Edit)
 
 **Purpose:** Detailed route editing, waypoint management, and file operations
+
+**Route Label Format:** "Navigation Route from <start point> To <end point>, <estimate total miles> in <estimate total in days and hours>"
+
+**Important:** A route must maintain a minimum of 2 waypoints (start and end). The delete button is disabled when only 2 waypoints remain.
 
 ### Waypoint Management
 
@@ -299,8 +284,11 @@ Each waypoint displays:
 - Displays trim angle relative to apparent wind
 
 **ETA Box:**
-- Estimated arrival time
+- **(ETA) Arrival time** - Estimated arrival time at waypoint
 - 🌙 Night arrival warning if applicable
+
+**Depart Time Box:**
+- **Depart time** - Estimated departure time from waypoint
 
 **Warning Box:**
 - Shows daylight arrival conflicts
@@ -322,7 +310,8 @@ Each waypoint displays:
 
 **✕ Delete:**
 - Removes waypoint from route
-- Confirmation required
+- **Minimum waypoint constraint:** Cannot delete if only 2 waypoints remain (routes require at least 2 waypoints)
+- Confirmation required before deletion
 
 ---
 
@@ -370,9 +359,19 @@ Displays when route has waypoints:
 
 ---
 
-## Polar Diagram Screen
+## Polar Diagram Screen (Sailing Polar Configuration)
 
-**Purpose:** Analyze sail performance in different wind conditions
+**Purpose:** Analyze sail performance in different wind conditions and configure engine activation thresholds
+
+### Guide Information (Top of Screen)
+
+This section provides educational information about:
+- How to interpret polar diagrams
+- Understanding boat performance at different wind angles
+- Tips for optimal sail configuration
+- Performance analysis techniques
+
+---
 
 ### Engine Activation Settings
 
@@ -380,6 +379,7 @@ Displays when route has waypoints:
 - Default: 3 knots
 - When wind drops below this, engine auto-activates
 - Used in route planning calculations
+- **Input Control:** Counter with up/down buttons for easy adjustment
 - Adjustable via "Save" button
 
 **Description:** "When wind speed falls below this threshold, the engine will be automatically activated during route planning."
@@ -440,6 +440,18 @@ Common sailing scenarios with expected boat speeds:
 ## Weather Monitor Screen
 
 **Purpose:** Continuous weather monitoring along planned route with alert configuration
+
+**Description:** "Cloud AI agent monitors the weather condition along your sailing route and send weather alerts for changes"
+
+### Sailing AI Agent Parameters
+
+This section contains advanced configuration options for the Cloud AI agent:
+- Agent behavior settings
+- Performance tuning options
+- Alert sensitivity levels
+- Route monitoring preferences
+
+---
 
 ### Monitoring Configuration
 
@@ -517,6 +529,14 @@ Common sailing scenarios with expected boat speeds:
 - Add email address to receive alert emails
 - Toggle to enable/disable
 
+#### Alert Sound Settings
+
+**Play Sound and Confirm Alert:** ✓ Toggle to enable
+- When enabled, plays an audio alert when a notification is received
+- Sound continues until the user confirms and closes the alert
+- Helps ensure critical alerts are noticed immediately
+- Recommended: Keep enabled for important weather alerts
+
 #### Contact Information
 - Phone Number: Enter for SMS alerts
 - Email: Enter for email alerts
@@ -542,7 +562,8 @@ Each alert displays:
 - ⏰ Duration or forecast
 
 **Acknowledgment Required:**
-- User confirms understanding of alert
+- User confirms understanding of alert by closing it
+- If "Play Sound and Confirm Alert" is enabled, sound continues until alert is dismissed
 - Auto-closes after timeout if not acknowledged
 
 ---
@@ -575,15 +596,15 @@ Each alert displays:
 
 **Application Name:** Sailing AI
 
-**Description:** Lagoon 440 Navigation Assistant
+**Description:** Advanced Navigation Assistant
 
 **Version:** 1.0.0
 
 ---
 
-### Your Features
+### AI Agent Features
 
-All available features in your account:
+All available features powered by the Sailing AI Agent:
 
 ✓ **Real-time Sailing Recommendations**
 - Instant sail configuration suggestions based on wind
@@ -592,7 +613,7 @@ All available features in your account:
 - AI-powered route generation with waypoint optimization
 
 ✓ **Weather Monitoring & Alerts**
-- Continuous monitoring with storm/hazard warnings
+- Cloud AI agent continuously monitors weather conditions along your route and sends alerts for changes
 
 ✓ **Cloud Sync & Storage**
 - Routes and settings synchronized across devices

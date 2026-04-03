@@ -1,37 +1,54 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { SailConfiguration } from '../types/sailing';
+import { getReefingRecommendation } from '../data/lagoon440Polar';
 
 interface SailConfigDisplayProps {
   configuration: SailConfiguration;
   expectedSpeed: number;
   description: string;
+  reefingAdvice?: string;
 }
 
 const SailConfigDisplay: React.FC<SailConfigDisplayProps> = React.memo(({
   configuration,
   expectedSpeed,
   description,
+  reefingAdvice,
 }) => {
   const activeSails = [];
-  if (configuration.mainSail) activeSails.push('Main Sail');
-  if (configuration.jib) activeSails.push('Jib');
+  if (configuration.mainSail) {
+    const reefLabel = configuration.reefLevel ? ` (Reef ${configuration.reefLevel})` : '';
+    activeSails.push(`Main Sail${reefLabel}`);
+  }
+  if (configuration.jib) {
+    const reefLabel = configuration.headsailReef ? ` (Reef ${configuration.headsailReef})` : '';
+    activeSails.push(`Jib${reefLabel}`);
+  }
   if (configuration.asymmetrical) activeSails.push('Asymmetrical');
   if (configuration.spinnaker) activeSails.push('Spinnaker');
   if (configuration.codeZero) activeSails.push('Code Zero');
   if (configuration.stormJib) activeSails.push('Storm Jib');
+
+  const hasReefing = (configuration.reefLevel && configuration.reefLevel > 0) || (configuration.headsailReef && configuration.headsailReef > 0);
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Recommended Sail Configuration</Text>
       <View style={styles.sailList}>
         {activeSails.map((sail, index) => (
-          <View key={index} style={styles.sailBadge}>
+          <View key={index} style={[styles.sailBadge, hasReefing && sail.includes('Reef') ? styles.reefBadge : null]}>
             <Text style={styles.sailText}>{sail}</Text>
           </View>
         ))}
       </View>
       <Text style={styles.description}>{description}</Text>
+      {reefingAdvice && (
+        <View style={styles.reefingContainer}>
+          <Text style={styles.reefingLabel}>⛵ Reefing:</Text>
+          <Text style={styles.reefingValue}>{reefingAdvice}</Text>
+        </View>
+      )}
       <View style={styles.speedContainer}>
         <Text style={styles.speedLabel}>Expected Speed:</Text>
         <Text style={styles.speedValue}>{expectedSpeed.toFixed(1)} kts</Text>
@@ -90,6 +107,28 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#0066CC',
+  },
+  reefBadge: {
+    backgroundColor: '#E65100',
+  },
+  reefingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    padding: 8,
+    borderRadius: 6,
+    marginBottom: 12,
+  },
+  reefingLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#E65100',
+    marginRight: 8,
+  },
+  reefingValue: {
+    fontSize: 14,
+    color: '#BF360C',
+    flex: 1,
   },
 });
 

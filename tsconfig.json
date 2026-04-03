@@ -4,7 +4,7 @@
     "strict": true,
     "jsx": "react-native",
     "target": "es2020",
-    "module": "commonjs",
+    "module": "preserve",
     "lib": ["es2020"],
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,

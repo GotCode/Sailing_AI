@@ -111,13 +111,16 @@ export default function RouteMapView({
       maxLon = Math.max(maxLon, wp.longitude);
     });
 
-    // Add padding to bounds (15% on each side)
-    const latPadding = (maxLat - minLat) * 0.15 || 0.5;
-    const lonPadding = (maxLon - minLon) * 0.15 || 0.5;
-    minLat -= latPadding;
-    maxLat += latPadding;
-    minLon -= lonPadding;
-    maxLon += lonPadding;
+    // Add padding to bounds: 20 nautical miles on each side
+    // 1 nautical mile ≈ 1/60 degree latitude, longitude adjusted by cos(lat)
+    const NM_PADDING = 20;
+    const latPaddingDeg = NM_PADDING / 60; // ~0.333 degrees
+    const avgLat = (minLat + maxLat) / 2;
+    const lonPaddingDeg = NM_PADDING / (60 * Math.cos(avgLat * Math.PI / 180)) || latPaddingDeg;
+    minLat -= latPaddingDeg;
+    maxLat += latPaddingDeg;
+    minLon -= lonPaddingDeg;
+    maxLon += lonPaddingDeg;
 
     // Calculate scale (pixels per degree)
     const latRange = maxLat - minLat;
@@ -532,8 +535,9 @@ export default function RouteMapView({
             </G>
           )}
 
-          {/* North indicator */}
+          {/* Compass direction indicators */}
           <G>
+            {/* North */}
             <Polygon
               points={`${MAP_SIZE - 25},15 ${MAP_SIZE - 30},30 ${MAP_SIZE - 25},25 ${MAP_SIZE - 20},30`}
               fill="#333"
@@ -547,6 +551,36 @@ export default function RouteMapView({
               fontWeight="bold"
             >
               N
+            </SvgText>
+            {/* South */}
+            <SvgText
+              x={MAP_SIZE / 2}
+              y={MAP_SIZE - 2}
+              fontSize={9}
+              fill="#999"
+              textAnchor="middle"
+            >
+              S
+            </SvgText>
+            {/* East */}
+            <SvgText
+              x={MAP_SIZE - 5}
+              y={MAP_SIZE / 2 + 3}
+              fontSize={9}
+              fill="#999"
+              textAnchor="end"
+            >
+              E
+            </SvgText>
+            {/* West */}
+            <SvgText
+              x={5}
+              y={MAP_SIZE / 2 + 3}
+              fontSize={9}
+              fill="#999"
+              textAnchor="start"
+            >
+              W
             </SvgText>
           </G>
 

@@ -18,5 +18,24 @@ module.exports = async function(env, argv) {
     crypto: false,
   };
 
+  // Disable image loaders to prevent jimp processing
+  config.module.rules = config.module.rules.filter(rule => {
+    if (rule.test && (rule.test.test('image.png') || rule.test.test('image.jpg') || rule.test.test('image.svg'))) {
+      return false;
+    }
+    return true;
+  });
+
+  // Add a simple passthrough for images
+  config.module.rules.push({
+    test: /\.(png|jpg|jpeg|gif|svg)$/i,
+    type: 'asset',
+    parser: {
+      dataUrlCondition: {
+        maxSize: 8 * 1024,
+      },
+    },
+  });
+
   return config;
 };

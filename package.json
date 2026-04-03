@@ -6,7 +6,7 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web",
+    "web": "node scripts/open-web.js",
     "setup": "npm install --legacy-peer-deps && cd backend && npm install",
     "build:backend": "cd backend && npm run build",
     "test:backend": "cd backend && npm test",

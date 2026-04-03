@@ -98,7 +98,6 @@ function MainNavigator() {
 
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
-  const [apiKeyLoaded, setApiKeyLoaded] = useState(false);
 
   // Load saved Windy API key on app start
   useEffect(() => {
@@ -111,15 +110,13 @@ function AppContent() {
         }
       } catch (err) {
         console.error('Failed to load Windy API key:', err);
-      } finally {
-        setApiKeyLoaded(true);
       }
     };
 
     loadWindyApiKey();
   }, []);
 
-  if (isLoading || !apiKeyLoaded) {
+  if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#0066CC" />

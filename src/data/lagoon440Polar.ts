@@ -390,6 +390,70 @@ export const LAGOON_440_POLAR: PolarDiagram = {
 };
 
 /**
+ * Lagoon 440 Factory Recommended Reefing Points
+ * Based on manufacturer guidelines for safe sail reduction
+ *
+ * Main Sail: 54 m² full area
+ *   - 1st reef at 15 kts TWS → ~43 m² (80% area)
+ *   - 2nd reef at 20 kts TWS → ~32 m² (60% area)
+ *   - 3rd reef (deep) at 25 kts TWS → ~24 m² (45% area)
+ *   - Storm trysail at 35+ kts TWS
+ *
+ * Headsail (Jib 49 m²):
+ *   - Full jib: 0-18 kts TWS
+ *   - 1st reef (75%) at 18 kts TWS → ~37 m²
+ *   - 2nd reef (50%) at 22 kts TWS → ~25 m²
+ *   - Storm jib at 30+ kts TWS → ~15 m²
+ */
+export interface ReefingPoint {
+  windSpeedMin: number; // TWS lower threshold (knots)
+  windSpeedMax: number; // TWS upper threshold (knots)
+  reefLevel: number;    // 0 = full, 1 = 1st reef, 2 = 2nd reef, 3 = deep reef
+  sailAreaPercent: number; // Percentage of full sail area
+  label: string;
+  description: string;
+}
+
+export const LAGOON_440_MAIN_REEFING: ReefingPoint[] = [
+  { windSpeedMin: 0,  windSpeedMax: 15, reefLevel: 0, sailAreaPercent: 100, label: 'Full Main', description: 'Full mainsail – 54 m²' },
+  { windSpeedMin: 15, windSpeedMax: 20, reefLevel: 1, sailAreaPercent: 80,  label: '1st Reef Main', description: '1st reef mainsail – ~43 m² (80%)' },
+  { windSpeedMin: 20, windSpeedMax: 25, reefLevel: 2, sailAreaPercent: 60,  label: '2nd Reef Main', description: '2nd reef mainsail – ~32 m² (60%)' },
+  { windSpeedMin: 25, windSpeedMax: 35, reefLevel: 3, sailAreaPercent: 45,  label: 'Deep Reef Main', description: '3rd reef (deep) mainsail – ~24 m² (45%)' },
+  { windSpeedMin: 35, windSpeedMax: 999, reefLevel: 3, sailAreaPercent: 0,  label: 'Storm Trysail', description: 'Storm trysail or bare poles' },
+];
+
+export const LAGOON_440_HEADSAIL_REEFING: ReefingPoint[] = [
+  { windSpeedMin: 0,  windSpeedMax: 18, reefLevel: 0, sailAreaPercent: 100, label: 'Full Jib', description: 'Full jib – 49 m²' },
+  { windSpeedMin: 18, windSpeedMax: 22, reefLevel: 1, sailAreaPercent: 75,  label: 'Reefed Jib', description: 'Reefed jib – ~37 m² (75%)' },
+  { windSpeedMin: 22, windSpeedMax: 30, reefLevel: 2, sailAreaPercent: 50,  label: 'Heavy Reef Jib', description: 'Heavily reefed jib – ~25 m² (50%)' },
+  { windSpeedMin: 30, windSpeedMax: 999, reefLevel: 3, sailAreaPercent: 0,  label: 'Storm Jib', description: 'Storm jib – ~15 m²' },
+];
+
+/**
+ * Get the recommended reefing for a given wind speed
+ */
+export function getReefingRecommendation(windSpeed: number): {
+  mainReef: ReefingPoint;
+  headsailReef: ReefingPoint;
+  reefingAdvice: string;
+} {
+  const mainReef = LAGOON_440_MAIN_REEFING.find(
+    r => windSpeed >= r.windSpeedMin && windSpeed < r.windSpeedMax
+  ) || LAGOON_440_MAIN_REEFING[LAGOON_440_MAIN_REEFING.length - 1];
+
+  const headsailReef = LAGOON_440_HEADSAIL_REEFING.find(
+    r => windSpeed >= r.windSpeedMin && windSpeed < r.windSpeedMax
+  ) || LAGOON_440_HEADSAIL_REEFING[LAGOON_440_HEADSAIL_REEFING.length - 1];
+
+  let reefingAdvice = `${mainReef.label} + ${headsailReef.label}`;
+  if (mainReef.reefLevel > 0 || headsailReef.reefLevel > 0) {
+    reefingAdvice += ` (${windSpeed.toFixed(0)} kts TWS)`;
+  }
+
+  return { mainReef, headsailReef, reefingAdvice };
+}
+
+/**
  * Get speed from polar for given conditions
  */
 export function getSpeedFromPolar(
